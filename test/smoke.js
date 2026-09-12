@@ -148,6 +148,13 @@ const cx = app.home.rects.helpCloseX;
 touch('start', cx.x + cx.w / 2, cx.y + cx.h / 2); // 首页面板无防误触，单击关闭
 step(0.05);
 check('✕ 跳过弹窗', app.home.panel === null);
+// 好友排行榜弹窗（开发者工具无开放数据域 → 本地兜底视图）
+touch('start', 187.5, 508); // 🏆 好友摸鱼榜按钮
+step(0.05);
+check('打开好友排行榜（本地兜底）', app.home.panel === 'rank');
+touch('start', 332.5, 117); // ✕
+step(0.05);
+check('关闭排行榜', app.home.panel === null);
 
 // ---------- 2. 开始游戏（第 1 关，带手把手教学） ----------
 console.log('\n[2] 开始游戏');
@@ -237,6 +244,7 @@ for (let i = 0; i < 25 && !b.modal; i++) {
   drainLevelups();
 }
 check('弹出胜利结算', b.modal && b.modal.type === 'result' && b.modal.win === true);
+check('结算含摸鱼分且刷新历史最高', b.modal.score > 0 && d.meta.bestScore >= b.modal.score && b.modal.newRecord === true);
 const coinsBeforeDouble = d.meta.coins;
 const runCoins = b.coins;
 const dbl = center(b.modal.rects.double);
@@ -281,9 +289,13 @@ step(2);
 drainLevelups();
 check('Boss 产品经理登场', !!b4.bossRef && b4.bossRef.type === 'boss');
 const cnt0 = b4.enemies.length;
-step(5); // 召唤周期 4 秒
-drainLevelups();
-check('Boss 召唤了增援', b4.enemies.length > cnt0 && b4.enemies.some((e) => e.type === 'request'));
+let summoned = false;
+for (let i = 0; i < 10 && !summoned; i++) { // 召唤周期 4 秒，期间可能有升级弹层冻结，轮询等待
+  step(1);
+  drainLevelups();
+  summoned = b4.enemies.length > cnt0 && b4.enemies.some((e) => e.type === 'request');
+}
+check('Boss 召唤了增援', summoned);
 // 残血狂暴
 const boss = b4.bossRef;
 boss.hp = Math.round(boss.hpMax * 0.3);
@@ -327,7 +339,7 @@ check('关闭面板', app.home.panel === null);
 // ---------- 10. 存档持久化 ----------
 console.log('\n[10] 存档');
 const saved = storageMap.get('moyu_defense_save_v1');
-check('存档已写入 storage', !!saved && saved.bestLevel >= 2 && saved.totalKills > 0);
+check('存档已写入 storage', !!saved && saved.bestLevel >= 2 && saved.totalKills > 0 && saved.bestScore > 0);
 
 // ---------- 结果 ----------
 console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

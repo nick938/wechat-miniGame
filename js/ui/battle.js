@@ -636,9 +636,10 @@ class BattleScene {
     ctx.fillRect(0, 0, W, H);
     U.drawPanel(ctx, W / 2 - 130, H / 2 - 170, 260, 340, 16, '#ffffff');
     U.drawText(ctx, '⏸ 摸鱼中', W / 2, H / 2 - 128, 20, '#333333', 'center', 'bold');
+    U.drawText(ctx, `摸鱼分 ${C.calcScore(b)}`, W / 2, H / 2 - 104, 13, '#e8a33d', 'center', 'bold');
 
     // 技能清单
-    let sy = H / 2 - 92;
+    let sy = H / 2 - 76;
     if (b.skills.length) {
       for (const s of b.skills) {
         const cfg = Skills.skillOf(b, s.id);

@@ -4,6 +4,7 @@
 const C = require('../core/config');
 const U = require('../core/utils');
 const Share = require('../services/share');
+const LB = require('../services/leaderboard');
 
 class Home {
   constructor(app) {
@@ -63,11 +64,13 @@ class Home {
     const W = C.DESIGN_W;
     this.rects = {
       start: { x: (W - 280) / 2, y: 288, w: 280, h: 64 },
-      upgrade: { x: (W - 280) / 2, y: 378, w: 280, h: 52 },
-      chest: { x: (W - 280) / 2, y: 442, w: 280, h: 52 },
-      share: { x: (W - 280) / 2, y: 506, w: 280, h: 52 },
+      upgrade: { x: (W - 280) / 2, y: 368, w: 280, h: 48 },
+      chest: { x: (W - 280) / 2, y: 426, w: 280, h: 48 },
+      rank: { x: (W - 280) / 2, y: 484, w: 280, h: 48 },
+      share: { x: (W - 280) / 2, y: 542, w: 280, h: 48 },
       help: { x: W - 52, y: 40, w: 38, h: 38 },
       closePanel: { x: W / 2 + 128, y: 96, w: 34, h: 34 },
+      rankClose: { x: W / 2 + 128, y: 100, w: 34, h: 34 },
       buys: [],
     };
   }
@@ -123,9 +126,20 @@ class Home {
       return;
     }
 
+    if (this.panel === 'rank') {
+      if (x >= this.rects.rankClose.x && x <= this.rects.rankClose.x + 34 &&
+        y >= this.rects.rankClose.y && y <= this.rects.rankClose.y + 34) {
+        this.panel = null;
+      }
+      return;
+    }
+
     if (hit(R.help)) {
       this.helpPage = 0;
       this.panel = 'help';
+    } else if (hit(R.rank)) {
+      this.panel = 'rank';
+      LB.requestRefresh(); // 打开时通知开放数据域刷新好友榜
     } else if (hit(R.start)) {
       U.vibrate();
       this.app.startBattle(d.meta.bestLevel);
@@ -209,12 +223,13 @@ class Home {
     const lvCfg = C.buildLevel(nextLv);
     U.drawPanel(ctx, (W - 300) / 2, 212, 300, 52, 12, '#ffffff');
     U.drawText(ctx, `第 ${nextLv} 关 · ${lvCfg.name}`, W / 2, 232, 15, '#4a90d9', 'center', 'bold');
-    U.drawText(ctx, `最高纪录：第 ${Math.max(1, d.meta.bestLevel - 1)} 关 ｜ 累计击退 ${d.meta.totalKills} 个需求`, W / 2, 252, 11, '#aaaaaa');
+    U.drawText(ctx, `🏆 最高摸鱼分 ${d.meta.bestScore} ｜ 累计击退 ${d.meta.totalKills} 个需求`, W / 2, 252, 11, '#aaaaaa');
 
     this.drawBtn(ctx, this.rects.start, '▶  开始摸鱼', '#3aa76d', '#ffffff', 20);
     this.drawBtn(ctx, this.rects.upgrade, '🪑 工位升级', '#ffffff', '#4a90d9', 16, '#4a90d9');
     const left = this.chestLeft();
     this.drawBtn(ctx, this.rects.chest, `🎁 广告宝箱（今日剩 ${left} 次）`, '#ffffff', '#e8a33d', 16, '#e8a33d');
+    this.drawBtn(ctx, this.rects.rank, '🏆 好友摸鱼榜', '#ffffff', '#ff8c00', 16, '#ff8c00');
     this.drawBtn(ctx, this.rects.share, '📣 分享给工友', '#ffffff', '#666666', 16, '#cccccc');
 
     // 玩法说明按钮（右上角）
@@ -226,6 +241,37 @@ class Home {
 
     if (this.panel === 'upgrade') this.renderUpgrade(ctx);
     if (this.panel === 'help') this.renderHelp(ctx);
+    if (this.panel === 'rank') this.renderRank(ctx);
+  }
+
+  // 好友摸鱼榜：开放数据域画在 sharedCanvas，主域整体上屏；不可用时回退本地数据
+  renderRank(ctx) {
+    const d = this.app.databus;
+    const W = C.DESIGN_W;
+    const H = C.DESIGN_H;
+    ctx.fillStyle = 'rgba(30,30,40,0.6)';
+    ctx.fillRect(0, 0, W, H);
+
+    const px = (W - 330) / 2;
+    const py = 88;
+    U.drawPanel(ctx, px, py, 330, 470, 16, '#ffffff');
+    U.drawText(ctx, '🏆 好友摸鱼榜', W / 2, py + 34, 19, '#333333', 'center', 'bold');
+
+    const shared = LB.available() ? LB.getSharedCanvas() : null;
+    if (shared) {
+      ctx.drawImage(shared, px + 5, py + 56, 320, 400);
+    } else {
+      // 开发者工具模拟器 / 环境不支持：展示本地数据兜底
+      U.drawEmoji(ctx, '📱', W / 2, py + 140, 40);
+      U.drawText(ctx, `我的最高摸鱼分  ${d.meta.bestScore}`, W / 2, py + 200, 15, '#e8a33d', 'center', 'bold');
+      U.drawText(ctx, `最高关卡 第 ${d.meta.bestLevel} 关`, W / 2, py + 232, 13, '#666666');
+      U.drawText(ctx, '好友排名需要在手机微信里打开才能看到，', W / 2, py + 290, 12, '#999999');
+      U.drawText(ctx, '分享给工友，比比谁更会摸鱼！', W / 2, py + 312, 12, '#999999');
+    }
+
+    const cr = this.rects.rankClose;
+    U.drawPanel(ctx, cr.x, cr.y, cr.w, cr.h, 17, '#f0ebe1');
+    U.drawText(ctx, '✕', cr.x + cr.w / 2, cr.y + cr.h / 2, 15, '#999999');
   }
 
   renderHelp(ctx) {

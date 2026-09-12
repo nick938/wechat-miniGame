@@ -165,6 +165,15 @@ const expNeed = (lvl) => 8 + 6 * (lvl - 1);
 // ---------- 快进 ----------
 const SPEED_STEPS = [1, 2, 3]; // 战斗内倍速循环档位
 
+// ---------- 摸鱼分 ----------
+// 单局综合分数：击杀×10 + 关卡×1000 + 剩余工位血量×5（复活不扣分）
+// 排行榜/分享/联机共用这一套，改权重只动这里
+const calcScore = (b) => Math.max(0, Math.round(
+  (b.kills || 0) * 10 +
+  (b.level || 1) * 1000 +
+  Math.max(0, b.baseHp || 0) * 5
+));
+
 module.exports = {
   DESIGN_W, DESIGN_H, HUD_H, BASE_Y, BOARD_CELL, BOARD_GAP, BOARD_COLS, BOARD_ROWS, BOARD_X0, BOARD_Y0,
   WEAPONS, WEAPON_TYPES, MAX_WEAPON_LV,
@@ -175,4 +184,5 @@ module.exports = {
   AD_UNIT_ID, CHEST_PER_DAY, REROLL_PER_RUN,
   expNeed,
   SPEED_STEPS,
+  calcScore,
 };

@@ -14,6 +14,7 @@ function defaultMeta() {
     coins: 0,
     upgrades: { screen: 0, chair: 0, fish: 0 }, // 工位升级等级
     bestLevel: 1,          // 解锁到的最高关卡
+    bestScore: 0,          // 历史最高摸鱼分
     totalKills: 0,
     chest: { date: '', used: 0 }, // 每日广告宝箱
     soundOn: true,

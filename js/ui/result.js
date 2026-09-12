@@ -4,6 +4,7 @@
  */
 const C = require('../core/config');
 const U = require('../core/utils');
+const LB = require('../services/leaderboard');
 
 const BTN_W = 240;
 const BTN_H = 48;
@@ -15,6 +16,13 @@ class Result {
     b.settled = true; // 标记已结算，防止中途退出逻辑重复入账
     b.winBonus = b.winBonus || 0;
 
+    // 摸鱼分结算 + 历史最高
+    const score = C.calcScore(b);
+    b.finalScore = score;
+    const newRecord = score > (d.meta.bestScore || 0);
+    b.newRecord = newRecord && d.meta.bestScore > 0 ? true : score > 0; // 首局也算新纪录
+    if (newRecord) d.meta.bestScore = score;
+
     // 本局收益入账（只入一次）
     d.meta.coins += b.coins;
     d.meta.totalKills += b.kills;
@@ -23,9 +31,14 @@ class Result {
     }
     d.saveMeta();
 
+    // 好友排行榜上报（开放数据域）
+    LB.submitScore(score);
+
     b.modal = {
       type: 'result',
       win,
+      score,
+      newRecord: score > 0 && newRecord,
       doubled: false,
       rects: {},
       justOpened: true,
@@ -41,20 +54,29 @@ class Result {
     ctx.fillStyle = 'rgba(30,30,40,0.6)';
     ctx.fillRect(0, 0, W, H);
 
-    const panelY = H / 2 - 210;
-    U.drawPanel(ctx, W / 2 - 160, panelY, 320, 420, 16, '#ffffff');
-    U.drawText(ctx, m.win ? '🎉 摸鱼成功！' : '😤 工位沦陷…', W / 2, panelY + 48, 26, m.win ? '#3aa76d' : '#ff6b6b', 'center', 'bold');
-    U.drawText(ctx, `第 ${b.level} 关 · ${b.cfg.name}`, W / 2, panelY + 84, 14, '#888888');
+    const panelY = H / 2 - 230;
+    U.drawPanel(ctx, W / 2 - 160, panelY, 320, 470, 16, '#ffffff');
+    U.drawText(ctx, m.win ? '🎉 摸鱼成功！' : '😤 工位沦陷…', W / 2, panelY + 44, 26, m.win ? '#3aa76d' : '#ff6b6b', 'center', 'bold');
+    U.drawText(ctx, `第 ${b.level} 关 · ${b.cfg.name}`, W / 2, panelY + 78, 14, '#888888');
 
-    const statY = panelY + 130;
+    // 摸鱼分（核心展示）
+    U.drawText(ctx, '摸鱼分', W / 2, panelY + 110, 13, '#999999');
+    U.drawText(ctx, `${m.score}`, W / 2, panelY + 140, 32, '#e8a33d', 'center', 'bold');
+    if (m.newRecord) {
+      U.drawText(ctx, '🎉 新纪录！', W / 2, panelY + 168, 13, '#ff8c00', 'center', 'bold');
+    } else {
+      U.drawText(ctx, `历史最高 ${d.meta.bestScore}`, W / 2, panelY + 168, 12, '#aaaaaa');
+    }
+
+    const statY = panelY + 200;
     U.drawText(ctx, '本局金币', W / 2 - 70, statY, 14, '#999999');
-    U.drawText(ctx, `+${b.coins}`, W / 2 - 70, statY + 30, 22, '#e8a33d', 'center', 'bold');
+    U.drawText(ctx, `+${b.coins}`, W / 2 - 70, statY + 28, 20, '#e8a33d', 'center', 'bold');
     U.drawText(ctx, '击退需求', W / 2 + 70, statY, 14, '#999999');
-    U.drawText(ctx, `${b.kills}`, W / 2 + 70, statY + 30, 22, '#4a90d9', 'center', 'bold');
-    U.drawText(ctx, `💰 总金币 ${d.meta.coins}`, W / 2, panelY + 200, 14, '#666666');
+    U.drawText(ctx, `${b.kills}`, W / 2 + 70, statY + 28, 20, '#4a90d9', 'center', 'bold');
+    U.drawText(ctx, `💰 总金币 ${d.meta.coins}`, W / 2, panelY + 258, 14, '#666666');
 
     const rects = {};
-    let y = panelY + 236;
+    let y = panelY + 292;
     if (m.win) {
       if (!m.doubled) {
         rects.double = { x: (W - BTN_W) / 2, y, w: BTN_W, h: BTN_H };
