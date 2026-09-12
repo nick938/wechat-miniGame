@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "mimosa-hook-status/v1",
+  "recordedAt": "2026-09-12T04:38:59.493Z",
+  "sessionId": "sess_bab0d93a-d676-4a45-baba-03c2f3be51b3",
+  "event": "PostToolUse",
+  "toolName": "Edit",
+  "file": "/Users/liuyi/.zcode/cli/memories/projects/project-692aa8bacad50871/memory/wechat-minigame-plan.md",
+  "outcome": "clear",
+  "coverage": "complete",
+  "findingCount": 0,
+  "durationMs": 2,
+  "hostState": "hook_complete",
+  "reportHint": ".mimosa/reports/"
+}

@@ -1,0 +1,174 @@
+/**
+ * 数据驱动配置：武器 / 敌人 / 技能 / 关卡 / 工位升级 / 布局常量
+ * 数值调优只改这个文件
+ */
+
+// ---------- 布局 ----------
+const DESIGN_W = 375;
+const DESIGN_H = 667;
+const HUD_H = 52;            // 顶部信息栏高度
+const BASE_Y = 366;          // 工位防线：敌人越过此线开始啃工位
+const BOARD_CELL = 64;       // 合成棋盘格子边长
+const BOARD_GAP = 6;         // 格子间距
+const BOARD_COLS = 4;
+const BOARD_ROWS = 4;
+const BOARD_X0 = (DESIGN_W - (BOARD_COLS * BOARD_CELL + (BOARD_COLS - 1) * BOARD_GAP)) / 2;
+const BOARD_Y0 = 383;        // 棋盘顶部 y
+
+// ---------- 武器 ----------
+// 等级数组下标 = 等级-1，最高 LV5
+const WEAPONS = {
+  coffee: {
+    id: 'coffee',
+    name: '咖啡',
+    emoji: '☕',
+    desc: '高攻速单体',
+    dmg: [10, 15, 21, 29, 38],
+    interval: [0.5, 0.46, 0.42, 0.38, 0.32],
+    // LV4 概率双发，LV5 三连发
+  },
+  keyboard: {
+    id: 'keyboard',
+    name: '键盘',
+    emoji: '⌨️',
+    desc: '键帽冲击波，穿透一列',
+    dmg: [18, 25, 34, 45, 58],
+    interval: [1.6, 1.5, 1.4, 1.3, 1.2],
+    width: [70, 78, 86, 96, 110],
+  },
+  bug: {
+    id: 'bug',
+    name: 'Bug',
+    emoji: '🐞',
+    desc: '投放自爆 Bug，范围爆炸',
+    dmg: [28, 38, 52, 70, 92],
+    interval: [3.2, 3.0, 2.8, 2.6, 2.4],
+    radius: [55, 62, 70, 78, 88],
+    fuse: 1.1,
+  },
+  headphone: {
+    id: 'headphone',
+    name: '耳机',
+    emoji: '🎧',
+    desc: '声波环绕，护体近战',
+    dmg: [7, 10, 14, 18, 24],
+    orbs: [1, 1, 2, 2, 3],
+    orbitR: [46, 52, 58, 64, 70],
+    hitCd: 0.4,
+    spin: 2.4,
+  },
+};
+const WEAPON_TYPES = ['coffee', 'keyboard', 'bug', 'headphone'];
+const MAX_WEAPON_LV = 5;
+
+// ---------- 敌人 ----------
+const ENEMIES = {
+  bug:      { id: 'bug',      name: 'Bug',      emoji: '🐛', hp: 12, speed: 32, dps: 4,  exp: 2, coin: 1, r: 14 },
+  group:    { id: 'group',    name: '群消息',   emoji: '💬', hp: 6,  speed: 46, dps: 2,  exp: 1, coin: 1, r: 10 },
+  request:  { id: 'request',  name: '紧急需求', emoji: '📋', hp: 28, speed: 26, dps: 6,  exp: 3, coin: 2, r: 16 },
+  product:  { id: 'product',  name: '产品需求', emoji: '📄', hp: 36, speed: 22, dps: 5,  exp: 3, coin: 2, r: 17, split: 3 },
+  mini:     { id: 'mini',     name: '小需求',   emoji: '🗒️', hp: 7,  speed: 44, dps: 2,  exp: 1, coin: 1, r: 11 },
+  boss:     { id: 'boss',     name: '产品经理', emoji: '👔', hp: 850, speed: 12, dps: 15, exp: 40, coin: 60, r: 30, boss: true },
+};
+// 各关刷怪池（按关卡解锁种类）
+const ENEMY_POOL_BY_LEVEL = [
+  { from: 1, types: ['bug', 'bug', 'group'] },
+  { from: 2, types: ['request'] },
+  { from: 3, types: ['product'] },
+];
+
+// ---------- 关卡 ----------
+const LEVEL_NAMES = ['周一早会', '临时需求', '改需求了', 'Bug大爆发', '老板巡查', '灰度发布', '年底冲KPI', '年终述职'];
+const BOSS_EVERY = 4;          // 每 4 关一个 Boss（第 4、8 关…）
+const SUPPLY_INTERVAL = 22;    // 补给投放间隔（秒）
+const BASE_HP = 100;           // 工位基础生命
+
+// 生成第 n 关配置（n 从 1 开始；>8 为无尽）
+function buildLevel(n) {
+  const duration = Math.min(255, 150 + (n - 1) * 15);
+  const hpMul = (1 + (n - 1) * 0.35) * (n > 8 ? Math.pow(1.35, n - 8) : 1);
+  const spMul = 1 + Math.min(0.5, (n - 1) * 0.04);
+  const isBoss = n % BOSS_EVERY === 0;
+
+  const pool = ['bug', 'bug', 'group'];
+  ENEMY_POOL_BY_LEVEL.forEach((p) => {
+    if (n >= p.from) pool.push(...p.types);
+  });
+
+  const events = [];
+  let t = 3;
+  while (t < duration - (isBoss ? 55 : 20)) {
+    const type = pool[Math.floor(Math.random() * pool.length)];
+    const count = 2 + Math.floor(Math.random() * 2) + Math.floor(n / 3);
+    events.push({ t, type, count, interval: 0.9 });
+    t += Math.max(6.5, 13 - n * 0.7) + Math.random() * 2;
+  }
+  // 中期精英波：一波产品需求（会分裂，喜剧效果）
+  events.push({ t: duration * 0.55, type: 'product', count: 2, interval: 1.2 });
+  if (isBoss) events.push({ t: duration - 50, type: 'boss', count: 1, interval: 1 });
+
+  return {
+    index: n,
+    name: n <= LEVEL_NAMES.length ? LEVEL_NAMES[n - 1] : `无尽 · 第${n}周`,
+    duration,
+    hpMul,
+    spMul,
+    isBoss,
+    events,
+  };
+}
+
+// ---------- 肉鸽技能 ----------
+// rarity: 1白 2蓝 3紫 4橙；maxStack 为最大叠加层数
+const SKILLS = [
+  { id: 'coffeeFrenzy', name: '咖啡狂热',     rarity: 1, max: 3, desc: '咖啡攻速 +30%' },
+  { id: 'keyboardSmash', name: '键盘侠',      rarity: 1, max: 3, desc: '键盘伤害 +30%' },
+  { id: 'bugFix',       name: '修Bug大师',   rarity: 1, max: 3, desc: 'Bug 炸弹伤害 +30%' },
+  { id: 'bassBoost',    name: '重低音',       rarity: 1, max: 3, desc: '耳机范围 +25%' },
+  { id: 'autofish',     name: '自动摸鱼脚本', rarity: 1, max: 3, desc: '全体攻速 +12%' },
+  { id: 'swiftHands',   name: '手速惊人',     rarity: 1, max: 3, desc: '全体伤害 +10%' },
+  { id: 'mute',         name: '工作群静音',   rarity: 2, max: 2, desc: '受到的伤害 -15%' },
+  { id: 'bossAway',     name: '老板不在',     rarity: 2, max: 2, desc: '敌人移速 -15%' },
+  { id: 'toiletBreak',  name: '带薪如厕',     rarity: 2, max: 3, desc: '每 5 秒回复 2 点生命' },
+  { id: 'overtimePay',  name: '加班费',       rarity: 2, max: 2, desc: '金币获取 +25%' },
+  { id: 'fishology',    name: '摸鱼学导论',   rarity: 2, max: 2, desc: '经验获取 +25%' },
+  { id: 'slowNet',      name: '办公网限速',   rarity: 2, max: 2, desc: '敌人对工位伤害 -25%' },
+  { id: 'refill',       name: '咖啡续杯',     rarity: 3, max: 1, desc: '咖啡豆可穿透 1 个敌人' },
+  { id: 'postpone',     name: '需求延期',     rarity: 3, max: 2, desc: '刷怪间隔 +18%' },
+  { id: 'shield',       name: '明天再说',     rarity: 3, max: 3, desc: '立即获得 50 点护盾' },
+  { id: 'efficiency',   name: '降本增效',     rarity: 3, max: 2, desc: '全体伤害 +20%' },
+  { id: 'leave',        name: '老板今天请假', rarity: 4, max: 1, desc: '所有敌人生命 -30%' },
+  { id: 'layoff',       name: '优化毕业',     rarity: 4, max: 1, desc: '击杀时 15% 概率引爆周围敌人' },
+  { id: 'annualLeave',  name: '带薪年假',     rarity: 4, max: 1, desc: '生命上限 +50 并回满' },
+];
+const RARITY_WEIGHT = { 1: 55, 2: 30, 3: 12, 4: 3 };
+const RARITY_NAME = { 1: '白', 2: '蓝', 3: '紫', 4: '橙' };
+const RARITY_COLOR = { 1: '#9aa5b1', 2: '#4a90d9', 3: '#9b59d0', 4: '#e8a33d' };
+
+// ---------- 局外成长（工位升级） ----------
+const UPGRADES = {
+  screen: { id: 'screen', name: '显示器', emoji: '🖥️', desc: '全体伤害', perTier: 0.06, maxTier: 5, fmt: (v) => `+${Math.round(v * 100)}%` },
+  chair:  { id: 'chair',  name: '人体工学椅', emoji: '🪑', desc: '工位生命', perTier: 12, maxTier: 5, fmt: (v) => `+${v} HP` },
+  fish:   { id: 'fish',   name: '摸鱼学', emoji: '🐟', desc: '金币收益', perTier: 0.06, maxTier: 5, fmt: (v) => `+${Math.round(v * 100)}%` },
+};
+const UPGRADE_COST = (tier) => Math.round(80 * Math.pow(2, tier)); // tier 从 0 计
+
+// ---------- 广告 ----------
+const AD_UNIT_ID = ''; // 上线前在微信后台创建激励视频广告位并填到这里；留空则走模拟广告
+const CHEST_PER_DAY = 3;
+const REROLL_PER_RUN = 2;      // 每局技能刷新次数（看广告）
+
+// ---------- 经验曲线 ----------
+// 前段刻意偏快：让玩家 30 秒内迎来第一次三选一（计划书 §38 的节奏目标）
+const expNeed = (lvl) => 8 + 6 * (lvl - 1);
+
+module.exports = {
+  DESIGN_W, DESIGN_H, HUD_H, BASE_Y, BOARD_CELL, BOARD_GAP, BOARD_COLS, BOARD_ROWS, BOARD_X0, BOARD_Y0,
+  WEAPONS, WEAPON_TYPES, MAX_WEAPON_LV,
+  ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_NAMES, BOSS_EVERY, SUPPLY_INTERVAL, BASE_HP,
+  buildLevel,
+  SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR,
+  UPGRADES, UPGRADE_COST,
+  AD_UNIT_ID, CHEST_PER_DAY, REROLL_PER_RUN,
+  expNeed,
+};

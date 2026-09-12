@@ -1,0 +1,65 @@
+{
+  "description": "摸鱼保卫战 - 项目配置",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "postcss": true,
+    "minified": true,
+    "newFeature": true,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "enhance": false,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "localPlugins": false,
+    "condition": false,
+    "compileWorklet": false,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    },
+    "disableUseStrict": false,
+    "minifyWXML": true,
+    "useCompilerPlugins": false
+  },
+  "compileType": "game",
+  "libVersion": "latest",
+  "appid": "wx7411bf8321763636",
+  "projectname": "moyu-defense",
+  "condition": {
+    "search": {
+      "current": -1,
+      "list": []
+    },
+    "conversation": {
+      "current": -1,
+      "list": []
+    },
+    "game": {
+      "currentL": -1,
+      "list": []
+    },
+    "miniprogram": {
+      "current": -1,
+      "list": []
+    }
+  },
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "legacy"
+      },
+      {
+        "type": "folder",
+        "value": "test"
+      }
+    ],
+    "include": []
+  },
+  "isGameTourist": false,
+  "editorSetting": {}
+}

@@ -1,0 +1,625 @@
+/**
+ * 战斗场景：战场刷怪 / 武器结算 / 弹丸与爆炸命中 / HUD / 暂停与复活 / 新手引导
+ */
+const C = require('../core/config');
+const U = require('../core/utils');
+const Enemy = require('../entities/enemy');
+const { Projectile, Bomb } = require('../entities/projectile');
+const Fx = require('../entities/fx');
+const WeaponSys = require('../systems/weapon');
+const Skills = require('../systems/skills');
+const WaveCtl = require('../systems/waves');
+const { track } = require('../services/track');
+const { Board, cellRect } = require('./board');
+const LevelUp = require('./levelup');
+const Result = require('./result');
+
+const PAUSE_BTN = { x: C.DESIGN_W - 46, y: 8, w: 38, h: 38 };
+const DESK_Y = C.BASE_Y - 14;
+
+class BattleScene {
+  constructor(app) {
+    this.app = app; // {databus, audio, adService, goHome()}
+    this.waves = null;
+    this.board = null;
+    this.spawnQueue = [];
+  }
+
+  start(levelIndex) {
+    const d = this.app.databus;
+    const b = d.newBattle(levelIndex);
+    this.waves = new WaveCtl(b.cfg);
+    this.board = new Board(b);
+    // 新手手把手教学：仅第 1 关且未完成过
+    this.tutorial = (!d.meta.tutorialDone && levelIndex === 1)
+      ? { step: 'merge', t: 0 }
+      : null;
+    this.board.onMerge = (idx, item) => {
+      U.vibrate();
+      track('weapon_merge', { lv: item.lv, type: item.type });
+      this.addFx('ring', WeaponSys.cellCenterX(idx), WeaponSys.cellCenterY(idx), { r1: 34, color: '#69cd8c' });
+      this.addFx('text', WeaponSys.cellCenterX(idx), WeaponSys.cellCenterY(idx) - 24, {
+        text: `${C.WEAPONS[item.type].name} LV${item.lv}`, color: '#3aa76d', size: 12,
+      });
+      // 教学第 1 步完成：解锁刷怪
+      if (this.tutorial && this.tutorial.step === 'merge') {
+        this.tutorial.step = 'auto';
+        this.tutorial.t = 0;
+        d.meta.tutorialDone = true;
+        d.saveMeta();
+      }
+    };
+    WeaponSys.reset();
+    this.app.audio.playBgm();
+    d.scene = 'battle';
+    track('level_start', { level: levelIndex });
+  }
+
+  get b() {
+    return this.app.databus.battle;
+  }
+
+  // ---------- 生成与结算 ----------
+  spawnEnemy(type) {
+    const d = this.app.databus;
+    const b = d.battle;
+    if (b.enemies.length > 80) return;
+    const e = d.pool.getItemByClass('enemy', Enemy);
+    e.init(type, b.cfg, b.mods);
+    b.enemies.push(e);
+    if (type === 'boss') {
+      b.bossRef = e;
+      this.addFx('text', C.DESIGN_W / 2, C.BASE_Y - 120, { text: '老板来了！', color: '#ff6b6b', size: 22 });
+      this.app.audio.playBoom();
+      U.vibrate();
+    }
+  }
+
+  spawnBossMinions(boss) {
+    for (let i = 0; i < 2; i++) {
+      this.spawnQueue.push('request');
+    }
+    this.addFx('text', boss.x, boss.y - 50, { text: '疯狂加需求！', color: '#e8a33d', size: 13 });
+  }
+
+  spawnProjectile(kind, x, y, opts) {
+    const d = this.app.databus;
+    const p = d.pool.getItemByClass('proj', Projectile).init(kind, x, y, opts);
+    this.b.projectiles.push(p);
+  }
+
+  spawnBomb(x, y, dmg, radius, fuse) {
+    const d = this.app.databus;
+    const bomb = d.pool.getItemByClass('bomb', Bomb).init(x, y, dmg, radius, fuse);
+    this.b.bombs.push(bomb);
+  }
+
+  damageEnemy(e, dmg) {
+    e.takeDamage(dmg);
+  }
+
+  explodeAt(x, y, dmg, radius) {
+    this.addFx('boom', x, y, { r1: radius, color: '#ffb14a' });
+    this.app.audio.playBoom();
+    for (const e of this.b.enemies) {
+      if (!e.dying && U.dist(x, y, e.x, e.y) < radius + e.r) {
+        this.damageEnemy(e, dmg);
+      }
+    }
+  }
+
+  onEnemyKilled(e) {
+    const b = this.b;
+    b.kills++;
+    b.coins += Math.max(1, Math.round(e.coin * b.mods.coinMul));
+    const levels = Skills.gainExp(b, e.exp);
+    if (levels > 0) b.pendingLevels += levels;
+
+    // 分裂：产品需求 → 3 个小需求
+    if (e.splitLeft) {
+      for (let i = 0; i < e.splitLeft; i++) {
+        this.spawnQueue.push('mini');
+      }
+    }
+    // 优化毕业：击杀引爆周围
+    if (b.mods.killExplode > 0 && Math.random() < b.mods.killExplode) {
+      this.explodeAt(e.x, e.y, Math.round(e.hpMax * 0.3), 70);
+    }
+    if (e.boss) {
+      b.bossRef = null;
+      this.addFx('text', e.x, e.y, { text: `+${Math.round(e.coin * b.mods.coinMul)} 🪙`, color: '#e8a33d', size: 18 });
+      this.app.audio.playBoom();
+    }
+    this.app.databus.pool.recover('enemy', e);
+  }
+
+  addFx(kind, x, y, opts) {
+    const d = this.app.databus;
+    const fx = d.pool.getItemByClass('fx', Fx).init(kind, x, y, opts);
+    this.b.fxs.push(fx);
+  }
+
+  checkPendingLevels() {
+    const b = this.b;
+    if (!b.modal && b.pendingLevels > 0) {
+      LevelUp.open(b);
+      // 玩家第一次见到三选一：加一行教学提示
+      if (!this.app.databus.meta.skillTipDone && b.modal) {
+        b.modal.skillTip = true;
+      }
+    }
+  }
+
+  // ---------- 主更新 ----------
+  update(dt) {
+    const d = this.app.databus;
+    const b = d.battle;
+    if (!b || b.modal) return;
+
+    b.time += dt;
+    b.timeLeft = Math.max(0, b.timeLeft - dt);
+    if (this.tutorial) this.tutorial.t += dt;
+
+    const inMergeLesson = this.tutorial && this.tutorial.step === 'merge';
+    if (!inMergeLesson) {
+      // 刷怪
+      this.waves.setElapsed(b.time);
+      this.waves.update(dt, b.mods).forEach((type) => this.spawnEnemy(type));
+      while (this.spawnQueue.length) {
+        this.spawnEnemy(this.spawnQueue.pop());
+      }
+
+      // 补给投放
+      b.supplyTimer -= dt;
+      if (b.supplyTimer <= 0) {
+        b.supplyTimer = C.SUPPLY_INTERVAL;
+        const pos = this.board.dropSupply(U.pick(C.WEAPON_TYPES));
+        if (pos) {
+          this.addFx('ring', pos.x, pos.y, { r1: 34, color: '#69cd8c' });
+          this.addFx('text', pos.x, pos.y - 20, { text: '新装备！', color: '#3aa76d', size: 12 });
+        }
+      }
+    }
+
+    // 带薪如厕回血
+    if (b.mods.regen > 0) {
+      b.regenAcc += dt;
+      if (b.regenAcc >= 5) {
+        b.regenAcc -= 5;
+        b.baseHp = Math.min(b.baseHpMax, b.baseHp + b.mods.regen);
+      }
+    }
+
+    // 武器攻击
+    WeaponSys.update(this, dt, b.time);
+
+    // 弹丸移动与命中
+    for (const p of b.projectiles) {
+      p.update(dt, b.enemies);
+      if (p.dead) continue;
+      for (const e of b.enemies) {
+        if (e.dying) continue;
+        if (p.kind === 'bean') {
+          if (U.dist(p.x, p.y, e.x, e.y) < e.r + 6) {
+            this.damageEnemy(e, p.dmg);
+            if (p.pierce > 0) p.pierce--;
+            else p.dead = true;
+            break;
+          }
+        } else if (Math.abs(p.x - e.x) < p.width / 2 + e.r * 0.6 && !p.hitSet[e.id]) {
+          p.hitSet[e.id] = 1;
+          this.damageEnemy(e, p.dmg);
+        }
+      }
+    }
+    b.projectiles = b.projectiles.filter((p) => {
+      if (p.dead) {
+        d.pool.recover('proj', p);
+        return false;
+      }
+      return true;
+    });
+
+    // 炸弹引爆
+    for (const bomb of b.bombs) {
+      bomb.update(dt);
+      if (bomb.dead) {
+        this.explodeAt(bomb.x, bomb.y, bomb.dmg, bomb.radius);
+        d.pool.recover('bomb', bomb);
+      }
+    }
+    b.bombs = b.bombs.filter((bomb) => !bomb.dead);
+
+    // 敌人
+    for (const e of b.enemies) {
+      if (!e.dying) e.update(dt, b);
+    }
+    // 死亡结算（可能引发连锁：分裂/爆炸），最多处理 5 轮防深度递归
+    for (let round = 0; round < 5; round++) {
+      const dying = b.enemies.filter((e) => e.dying);
+      if (!dying.length) break;
+      b.enemies = b.enemies.filter((e) => !e.dying);
+      for (const e of dying) this.onEnemyKilled(e);
+    }
+
+    // 有待选的升级就弹三选一
+    this.checkPendingLevels();
+
+    // 特效
+    for (const fx of b.fxs) fx.update(dt);
+    b.fxs = b.fxs.filter((fx) => {
+      if (fx.dead) {
+        d.pool.recover('fx', fx);
+        return false;
+      }
+      return true;
+    });
+
+    // 失败 → 复活或结算
+    if (b.baseHp <= 0) {
+      b.baseHp = 0;
+      if (!b.revived) {
+        b.modal = { type: 'revive', rects: {}, justOpened: true };
+      } else {
+        this.openResult(false);
+      }
+      return;
+    }
+
+    // 胜利：时间到 + 清场 + 波次放完
+    if (b.timeLeft <= 0 && b.enemies.length === 0 && this.waves.done && !this.spawnQueue.length) {
+      b.winBonus = 30 + 10 * b.level;
+      b.coins += b.winBonus;
+      this.openResult(true);
+    }
+  }
+
+  openResult(win) {
+    this.app.audio.stopBgm();
+    track('level_end', { level: this.b.level, win: win ? 1 : 0, kills: this.b.kills });
+    Result.open(this, win);
+  }
+
+  // ---------- 触摸 ----------
+  onTouchStart(x, y) {
+    const b = this.b;
+    if (!b) return;
+    if (b.modal) {
+      if (b.modal.type === 'levelup') LevelUp.onTouch(this, x, y);
+      else if (b.modal.type === 'result') Result.onTouch(this, x, y);
+      else if (b.modal.type === 'pause') this.pauseTouch(x, y);
+      else if (b.modal.type === 'revive') this.reviveTouch(x, y);
+      return;
+    }
+    const hit = (r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    if (hit(PAUSE_BTN)) {
+      b.modal = { type: 'pause', rects: {}, justOpened: true };
+      return;
+    }
+    this.board.onTouchStart(x, y);
+  }
+
+  onTouchMove(x, y) {
+    const b = this.b;
+    if (!b || b.modal) return;
+    this.board.onTouchMove(x, y);
+  }
+
+  onTouchEnd(x, y) {
+    const b = this.b;
+    if (!b || b.modal) return;
+    this.board.onTouchEnd(x, y);
+  }
+
+  pauseTouch(x, y) {
+    const b = this.b;
+    const m = b.modal;
+    if (m.justOpened) { m.justOpened = false; return; }
+    const hit = (r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    const R = m.rects;
+    if (hit(R.resume)) {
+      b.modal = null;
+    } else if (hit(R.retry)) {
+      b.modal = null;
+      this.start(b.level);
+    } else if (hit(R.home)) {
+      b.modal = null;
+      this.exitToHome();
+    } else if (hit(R.sound)) {
+      const d = this.app.databus;
+      d.meta.soundOn = !d.meta.soundOn;
+      d.saveMeta();
+      this.app.audio.setEnabled(d.meta.soundOn);
+    }
+  }
+
+  reviveTouch(x, y) {
+    const b = this.b;
+    const m = b.modal;
+    if (m.justOpened) { m.justOpened = false; return; }
+    const hit = (r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    if (hit(m.rects.revive)) {
+      this.app.adService.show('revive', () => {
+        b.revived = true;
+        b.baseHp = Math.round(b.baseHpMax * 0.5);
+        // 把压境的敌人击退重进
+        for (const e of b.enemies) {
+          e.attacking = false;
+          e.y = -20;
+          e.baseX = U.rand(30, C.DESIGN_W - 30);
+        }
+        this.addFx('text', C.DESIGN_W / 2, C.BASE_Y - 80, { text: '元气恢复！继续摸鱼', color: '#3aa76d', size: 18 });
+        b.modal = null;
+      });
+    } else if (hit(m.rects.giveup)) {
+      b.modal = null;
+      this.openResult(false);
+    }
+  }
+
+  exitToHome() {
+    this.app.audio.stopBgm();
+    this.app.goHome();
+  }
+
+  // ---------- 渲染 ----------
+  render(ctx) {
+    const d = this.app.databus;
+    const b = d.battle;
+    if (!b) return;
+    const W = C.DESIGN_W;
+
+    this.renderField(ctx);
+    for (const bomb of b.bombs) bomb.render(ctx);
+    for (const e of b.enemies) e.render(ctx, b.time);
+    for (const p of b.projectiles) p.render(ctx);
+    this.renderOrbs(ctx);
+    this.renderDesk(ctx);
+    this.board.render(ctx);
+    for (const fx of b.fxs) fx.render(ctx);
+    this.renderHud(ctx);
+    if (b.bossRef) this.renderBossBar(ctx);
+    this.renderTutorial(ctx);
+
+    if (b.modal) {
+      if (b.modal.type === 'levelup') LevelUp.render(ctx, b);
+      else if (b.modal.type === 'result') Result.render(ctx, this);
+      else if (b.modal.type === 'pause') this.renderPause(ctx);
+      else if (b.modal.type === 'revive') this.renderRevive(ctx);
+    }
+  }
+
+  renderField(ctx) {
+    // 办公室地毯：淡条纹
+    ctx.fillStyle = '#f0ebe1';
+    ctx.fillRect(0, C.HUD_H, C.DESIGN_W, C.BASE_Y - C.HUD_H);
+    ctx.fillStyle = 'rgba(210,200,185,0.35)';
+    for (let y = C.HUD_H; y < C.BASE_Y; y += 36) {
+      ctx.fillRect(0, y, C.DESIGN_W, 18);
+    }
+  }
+
+  renderDesk(ctx) {
+    const b = this.b;
+    // 工位桌面
+    ctx.fillStyle = '#c9a06a';
+    ctx.fillRect(0, DESK_Y, C.DESIGN_W, C.BOARD_Y0 - DESK_Y);
+    ctx.fillStyle = '#b78c58';
+    ctx.fillRect(0, DESK_Y, C.DESIGN_W, 5);
+    U.drawEmoji(ctx, '💻', C.DESIGN_W / 2, DESK_Y - 16, 26);
+
+    // 工位生命条
+    const ratio = U.clamp(b.baseHp / b.baseHpMax, 0, 1);
+    const bw = C.DESIGN_W - 60;
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    U.roundRectPath(ctx, 30, DESK_Y - 34, bw, 10, 5);
+    ctx.fill();
+    ctx.fillStyle = ratio > 0.4 ? '#3aa76d' : '#ff6b6b';
+    U.roundRectPath(ctx, 30, DESK_Y - 34, bw * ratio, 10, 5);
+    ctx.fill();
+    if (b.baseShield > 0) {
+      ctx.fillStyle = 'rgba(126,200,255,0.75)';
+      U.roundRectPath(ctx, 30, DESK_Y - 34, bw * U.clamp(b.baseShield / b.baseHpMax, 0, 1), 10, 5);
+      ctx.fill();
+    }
+    U.drawText(ctx, '🛡', 20, DESK_Y - 29, 12, '#666666');
+  }
+
+  renderOrbs(ctx) {
+    const b = this.b;
+    for (const key of Object.keys(b.orbs)) {
+      const st = b.orbs[key];
+      const cfg = C.WEAPONS.headphone;
+      const item = b.board.cells[key];
+      if (!item) continue;
+      const n = cfg.orbs[item.lv - 1];
+      for (let k = 0; k < n; k++) {
+        const ox = st['x' + k];
+        const oy = st['y' + k];
+        if (ox == null) continue;
+        ctx.fillStyle = 'rgba(126,200,255,0.85)';
+        ctx.beginPath();
+        ctx.arc(ox, oy, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#4a90d9';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+  }
+
+  renderHud(ctx) {
+    const b = this.b;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, C.DESIGN_W, C.HUD_H);
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillRect(0, C.HUD_H - 2, C.DESIGN_W, 2);
+
+    U.drawText(ctx, `${b.level}-${b.cfg.name}`, 12, 20, 15, '#333333', 'left', 'bold');
+    const t = Math.ceil(b.timeLeft);
+    U.drawText(ctx, `⏱ ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`, 12, 40, 13, '#666666', 'left');
+    U.drawText(ctx, `🪙 ${b.coins}`, C.DESIGN_W / 2 + 20, 20, 15, '#e8a33d', 'center', 'bold');
+    U.drawText(ctx, `Lv.${b.charLevel}`, C.DESIGN_W / 2 + 20, 40, 11, '#888888');
+
+    // 暂停按钮
+    U.drawPanel(ctx, PAUSE_BTN.x, PAUSE_BTN.y, PAUSE_BTN.w, PAUSE_BTN.h, 10, '#f0ebe1');
+    U.drawText(ctx, '⏸', PAUSE_BTN.x + PAUSE_BTN.w / 2, PAUSE_BTN.y + PAUSE_BTN.h / 2, 18, '#666666');
+
+    // 经验条
+    const need = C.expNeed(b.charLevel);
+    ctx.fillStyle = 'rgba(74,144,217,0.15)';
+    ctx.fillRect(0, C.HUD_H - 4, C.DESIGN_W, 4);
+    ctx.fillStyle = '#4a90d9';
+    ctx.fillRect(0, C.HUD_H - 4, C.DESIGN_W * U.clamp(b.exp / need, 0, 1), 4);
+  }
+
+  renderBossBar(ctx) {
+    const boss = this.b.bossRef;
+    if (!boss) return;
+    const w = C.DESIGN_W - 80;
+    const y = C.HUD_H + 8;
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    U.roundRectPath(ctx, 40, y, w, 12, 6);
+    ctx.fill();
+    ctx.fillStyle = boss.enraged ? '#ff4d4d' : '#ff6b6b';
+    U.roundRectPath(ctx, 40, y, w * U.clamp(boss.hp / boss.hpMax, 0, 1), 12, 6);
+    ctx.fill();
+    U.drawText(ctx, `👔 产品经理${boss.enraged ? '（狂暴）' : ''}`, C.DESIGN_W / 2, y - 4, 11, '#a33', 'center', 'bold');
+  }
+
+  renderTutorial(ctx) {
+    const t = this.tutorial;
+    if (!t) return;
+    const b = this.b;
+
+    const banner = (text) => {
+      const W = C.DESIGN_W;
+      const y = C.HUD_H + 40;
+      ctx.globalAlpha = 0.95;
+      U.drawPanel(ctx, W / 2 - 150, y, 300, 38, 19, 'rgba(0,0,0,0.6)');
+      U.drawText(ctx, text, W / 2, y + 19, 14, '#ffffff');
+      ctx.globalAlpha = 1;
+    };
+
+    if (t.step === 'merge') {
+      // 找到一对同类同级装备（玩家拖乱了也能动态适应）
+      const cells = b.board.cells;
+      const groups = {};
+      cells.forEach((c, i) => {
+        if (c) (groups[c.type + c.lv] = groups[c.type + c.lv] || []).push(i);
+      });
+      const pairKey = Object.keys(groups).find((k) => groups[k].length >= 2);
+      if (!pairKey) return;
+      const ra = cellRect(groups[pairKey][0]);
+      const rb = cellRect(groups[pairKey][1]);
+
+      // 两个目标格呼吸描边
+      const pulse = 0.5 + 0.5 * Math.sin(t.t * 4);
+      ctx.strokeStyle = `rgba(58,167,109,${0.45 + 0.45 * pulse})`;
+      ctx.lineWidth = 3;
+      [ra, rb].forEach((r) => {
+        U.roundRectPath(ctx, r.x - 3, r.y - 3, r.w + 6, r.h + 6, 13);
+        ctx.stroke();
+      });
+
+      // 轨迹虚线 + 往返滑动的手指光点
+      const ax = ra.x + ra.w / 2;
+      const ay = ra.y + ra.h / 2;
+      const bx = rb.x + rb.w / 2;
+      const by = rb.y + rb.h / 2;
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = 'rgba(74,144,217,0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const cyc = (t.t % 2.2) / 2.2;
+      const ease = cyc < 0.4 ? cyc / 0.4 : (cyc < 0.6 ? 1 : 1 - (cyc - 0.6) / 0.4);
+      const fx = ax + (bx - ax) * ease;
+      const fy = ay + (by - ay) * ease;
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.beginPath();
+      ctx.arc(fx, fy, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#4a90d9';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      U.drawEmoji(ctx, '👆', fx, fy - 24, 20);
+
+      banner('👆 按住 [咖啡]，拖到另一个 [咖啡] 上合成！');
+    } else if (t.step === 'auto') {
+      if (t.t < 4) {
+        banner('装备会自动攻击，守住你的工位！');
+      } else {
+        this.tutorial = null; // 剩下的靠第一次三选一提示与“新装备”飘字
+      }
+    }
+  }
+
+  renderPause(ctx) {
+    const b = this.b;
+    const m = b.modal;
+    const W = C.DESIGN_W;
+    const H = C.DESIGN_H;
+    ctx.fillStyle = 'rgba(30,30,40,0.55)';
+    ctx.fillRect(0, 0, W, H);
+    U.drawPanel(ctx, W / 2 - 130, H / 2 - 170, 260, 340, 16, '#ffffff');
+    U.drawText(ctx, '⏸ 摸鱼中', W / 2, H / 2 - 128, 20, '#333333', 'center', 'bold');
+
+    // 技能清单
+    let sy = H / 2 - 92;
+    if (b.skills.length) {
+      for (const s of b.skills) {
+        const cfg = Skills.skillOf(b, s.id);
+        U.drawText(ctx, `${cfg.name} ×${s.stacks}`, W / 2, sy, 12, '#666666');
+        sy += 18;
+        if (sy > H / 2 + 10) break;
+      }
+    } else {
+      U.drawText(ctx, '还没有技能，升级吧', W / 2, sy, 12, '#bbbbbb');
+      sy += 18;
+    }
+
+    const rects = {};
+    const btn = (key, y, text, fill, color) => {
+      rects[key] = { x: W / 2 - 110, y, w: 220, h: 42 };
+      U.drawPanel(ctx, W / 2 - 110, y, 220, 42, 21, fill);
+      U.drawText(ctx, text, W / 2, y + 21, 14, color, 'center', 'bold');
+    };
+    let y = H / 2 + 26;
+    btn('resume', y, '继续摸鱼 ▶', '#3aa76d', '#ffffff');
+    y += 50;
+    btn('retry', y, '重开本关 🔁', '#4a90d9', '#ffffff');
+    y += 50;
+    btn('sound', y, `音效：${this.app.databus.meta.soundOn ? '开' : '关'}`, '#f0ebe1', '#666666');
+    y += 50;
+    btn('home', y, '回首页 🏠', '#e5ded2', '#666666');
+    m.rects = rects;
+  }
+
+  renderRevive(ctx) {
+    const b = this.b;
+    const m = b.modal;
+    const W = C.DESIGN_W;
+    const H = C.DESIGN_H;
+    ctx.fillStyle = 'rgba(30,30,40,0.6)';
+    ctx.fillRect(0, 0, W, H);
+    U.drawPanel(ctx, W / 2 - 140, H / 2 - 150, 280, 300, 16, '#ffffff');
+    U.drawText(ctx, '😵 工位要被占领了！', W / 2, H / 2 - 100, 20, '#ff6b6b', 'center', 'bold');
+    U.drawText(ctx, '看个广告满血复活，', W / 2, H / 2 - 60, 14, '#666666');
+    U.drawText(ctx, '敌人全部击退回入口', W / 2, H / 2 - 38, 14, '#666666');
+
+    const rr = { x: W / 2 - 110, y: H / 2 + 0, w: 220, h: 48 };
+    U.drawPanel(ctx, rr.x, rr.y, rr.w, rr.h, 24, '#e8a33d');
+    U.drawText(ctx, '📺 看广告 复活', W / 2, rr.y + 24, 16, '#ffffff', 'center', 'bold');
+    const gr = { x: W / 2 - 110, y: H / 2 + 62, w: 220, h: 42 };
+    U.drawPanel(ctx, gr.x, gr.y, gr.w, gr.h, 21, '#e5ded2');
+    U.drawText(ctx, '认命，下班', W / 2, gr.y + 21, 14, '#666666');
+    m.rects = { revive: rr, giveup: gr };
+  }
+}
+
+module.exports = BattleScene;
