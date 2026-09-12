@@ -15,6 +15,7 @@ const LevelUp = require('./levelup');
 const Result = require('./result');
 
 const PAUSE_BTN = { x: C.DESIGN_W - 46, y: 8, w: 38, h: 38 };
+const SPEED_BTN = { x: C.DESIGN_W - 90, y: 8, w: 38, h: 38 };
 const DESK_Y = C.BASE_Y - 14;
 
 class BattleScene {
@@ -162,7 +163,19 @@ class BattleScene {
   }
 
   // ---------- 主更新 ----------
+  // 倍速驱动：把 dt×速度 拆成 ≤33ms 的子步进跑，避免高速下弹丸穿模
   update(dt) {
+    const b = this.b;
+    if (!b || b.modal) return;
+    let remaining = dt * (b.speed || 1);
+    while (remaining > 1e-6 && !b.modal) {
+      const s = Math.min(0.033, remaining);
+      this.simStep(s);
+      remaining -= s;
+    }
+  }
+
+  simStep(dt) {
     const d = this.app.databus;
     const b = d.battle;
     if (!b || b.modal) return;
@@ -311,6 +324,15 @@ class BattleScene {
       return;
     }
     const hit = (r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    const inMergeLesson = this.tutorial && this.tutorial.step === 'merge';
+    if (!inMergeLesson && hit(SPEED_BTN)) {
+      // 倍速循环 ×1 → ×2 → ×3 → ×1，偏好存档
+      const steps = C.SPEED_STEPS;
+      b.speed = steps[(steps.indexOf(b.speed) + 1) % steps.length] || 1;
+      this.app.databus.meta.speed = b.speed;
+      this.app.databus.saveMeta();
+      return;
+    }
     if (hit(PAUSE_BTN)) {
       b.modal = { type: 'pause', rects: {}, justOpened: true };
       return;
@@ -501,6 +523,15 @@ class BattleScene {
     // 暂停按钮
     U.drawPanel(ctx, PAUSE_BTN.x, PAUSE_BTN.y, PAUSE_BTN.w, PAUSE_BTN.h, 10, '#f0ebe1');
     U.drawText(ctx, '⏸', PAUSE_BTN.x + PAUSE_BTN.w / 2, PAUSE_BTN.y + PAUSE_BTN.h / 2, 18, '#666666');
+
+    // 倍速按钮（新手合成教学阶段隐藏：开局没怪，快进无意义）
+    if (!(this.tutorial && this.tutorial.step === 'merge')) {
+      const hot = b.speed > 1;
+      U.drawPanel(ctx, SPEED_BTN.x, SPEED_BTN.y, SPEED_BTN.w, SPEED_BTN.h, 10,
+        hot ? '#e8a33d' : '#f0ebe1');
+      U.drawText(ctx, `×${b.speed}`, SPEED_BTN.x + SPEED_BTN.w / 2, SPEED_BTN.y + SPEED_BTN.h / 2, 14,
+        hot ? '#ffffff' : '#666666', 'center', 'bold');
+    }
 
     // 经验条
     const need = C.expNeed(b.charLevel);

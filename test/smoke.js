@@ -172,8 +172,11 @@ check('两个咖啡 LV1 合成为 LV2', b.board.cells[5].lv === 2 && b.board.cel
 check('合成后教学推进并落存档', d.meta.tutorialDone === true &&
   (!app.battle.tutorial || app.battle.tutorial.step === 'auto'));
 
-// ---------- 4. 战斗推进：刷怪/击杀/金币/补给 ----------
-console.log('\n[4] 战斗推进 45s');
+// ---------- 4. 战斗推进：刷怪/击杀/金币/补给（×2 快进） ----------
+console.log('\n[4] 战斗推进 45s（×2 快进）');
+touch('start', 304, 27); // 倍速按钮 → ×2
+step(0.05);
+check('切到 ×2 快进', b.speed === 2 && d.meta.speed === 2);
 let sawEnemy = false;
 let sawProj = false;
 for (let i = 0; i < 90; i++) {
@@ -183,6 +186,12 @@ for (let i = 0; i < 90; i++) {
   if (b.projectiles.length > 0) sawProj = true;
 }
 drainLevelups();
+// 恢复 ×1（×2 → ×3 → ×1）
+touch('start', 304, 27);
+step(0.05);
+touch('start', 304, 27);
+step(0.05);
+check('倍速循环切回 ×1 并存档', b.speed === 1 && d.meta.speed === 1);
 check('45s 内出现敌人', sawEnemy);
 check('45s 内有弹丸飞行', sawProj);
 check('有击杀产生', b.kills > 0);
