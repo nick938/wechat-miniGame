@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# 本地工具状态（Mimosa 安全插件的会话缓存/报告，属本机产物）
+.mimosa/
+
+# 微信开发者工具的个人配置（本机个性化设置，官方建议不入库）
+project.private.config.json
+
+# 依赖目录（当前无 npm 依赖，预防性忽略）
+node_modules/
+
+# Python 缓存（tools/gen_ruanzhu.py）
+__pycache__/
+*.pyc
+
+# 软著申报 PDF：生成产物，改动代码后运行 tools/gen_ruanzhu.py 重新生成
+# （想把它备份进仓库的话删掉下面这行即可）
+软著材料/
+
+# 日志
+*.log

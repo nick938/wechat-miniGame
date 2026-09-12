@@ -9,8 +9,54 @@ class Home {
   constructor(app) {
     this.app = app;
     this.time = 0;
-    this.panel = null; // null | 'upgrade'
+    this.panel = null; // null | 'upgrade' | 'help'
     this.layout();
+    this.initHelp();
+    // 首次进入自动弹出玩法说明
+    if (!app.databus.meta.helpSeen) {
+      this.panel = 'help';
+      this.helpPage = 0;
+    }
+  }
+
+  // 分页式玩法说明内容
+  initHelp() {
+    this.helpPage = 0;
+    this.helpPages = [
+      {
+        title: '🎯 守住你的工位',
+        lines: [
+          '敌人会从屏幕上方一波波压下来',
+          '走到工位就会啃你的血条',
+          '血条空了就输，撑到倒计时结束就赢',
+          '装备全自动开火，你不用打怪',
+        ],
+        art: 'field',
+      },
+      {
+        title: '🖱️ 拖动合成装备',
+        lines: [
+          '按住装备，拖到另一个相同的装备上',
+          '合成升级：LV1 + LV1 → LV2（最高 LV5）',
+          '拖动时红光会显示装备的攻击范围',
+          '每约 22 秒空投一件新装备到空格',
+          '棋盘 16 格有限，多合成腾空位',
+          '新手公式：先把咖啡合到 LV3',
+        ],
+        art: 'merge',
+      },
+      {
+        title: '⬆️ 升级与变强',
+        lines: [
+          '杀怪得经验，升级三选一拿技能',
+          '品质：白 < 蓝 < 紫 < 橙，可叠加',
+          '金币回首页升级工位（伤害/血/收益）',
+          '📺 广告换：复活 / 金币翻倍 / 宝箱',
+          '👔 每 4 关一个 Boss，第 8 关后无尽',
+        ],
+        art: null,
+      },
+    ];
   }
 
   layout() {
@@ -21,7 +67,6 @@ class Home {
       chest: { x: (W - 280) / 2, y: 442, w: 280, h: 52 },
       share: { x: (W - 280) / 2, y: 506, w: 280, h: 52 },
       help: { x: W - 52, y: 40, w: 38, h: 38 },
-      helpClose: { x: W / 2 + 128, y: 150, w: 34, h: 34 },
       closePanel: { x: W / 2 + 128, y: 96, w: 34, h: 34 },
       buys: [],
     };
@@ -68,13 +113,18 @@ class Home {
     }
 
     if (this.panel === 'help') {
-      if (hit(R.helpClose)) {
-        this.panel = null;
+      const hitR = (r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+      if (hitR(this.rects.helpNext)) {
+        if (this.helpPage < this.helpPages.length - 1) this.helpPage++;
+        else this.closeHelp();
+      } else if (hitR(this.rects.helpCloseX)) {
+        this.closeHelp();
       }
       return;
     }
 
     if (hit(R.help)) {
+      this.helpPage = 0;
       this.panel = 'help';
     } else if (hit(R.start)) {
       U.vibrate();
@@ -88,7 +138,18 @@ class Home {
     }
   }
 
+  closeHelp() {
+    const d = this.app.databus;
+    if (!d.meta.helpSeen) {
+      d.meta.helpSeen = true;
+      d.saveMeta();
+    }
+    this.panel = null;
+  }
+
   buy(key) {
+    if (this.time - (this._lastBuyT === undefined ? -9 : this._lastBuyT) < 0.25) return; // 防快速双击连买
+    this._lastBuyT = this.time;
     const d = this.app.databus;
     const cfg = C.UPGRADES[key];
     const tier = d.meta.upgrades[key];
@@ -170,30 +231,121 @@ class Home {
   renderHelp(ctx) {
     const W = C.DESIGN_W;
     const H = C.DESIGN_H;
-    ctx.fillStyle = 'rgba(30,30,40,0.5)';
+    const page = this.helpPages[this.helpPage];
+    const last = this.helpPage === this.helpPages.length - 1;
+
+    ctx.fillStyle = 'rgba(30,30,40,0.65)';
     ctx.fillRect(0, 0, W, H);
-    const px = (W - 320) / 2;
-    const py = 150;
-    U.drawPanel(ctx, px, py, 320, 340, 16, '#ffffff');
-    U.drawText(ctx, '📖 玩法说明', W / 2, py + 38, 20, '#333333', 'center', 'bold');
-    const lines = [
-      ['🖱️', '拖动相同的装备合成升级，', '装备会自动攻击敌人'],
-      ['⬆️', '击杀得经验，升级时三选一拿技能'],
-      ['🛡️', '敌人啃到工位就掉血，血条空了就输'],
-      ['🪙', '金币用来升级工位，越摸越强'],
-      ['📺', '看广告可复活、翻倍奖励、开宝箱'],
-    ];
-    let y = py + 86;
-    for (const [icon, l1, l2] of lines) {
-      U.drawEmoji(ctx, icon, px + 36, y + (l2 ? 14 : 0), 20);
-      U.drawText(ctx, l1, px + 62, y, 13, '#444444', 'left');
-      if (l2) U.drawText(ctx, l2, px + 62, y + 20, 13, '#444444', 'left');
-      y += l2 ? 58 : 42;
+
+    const px = (W - 330) / 2;
+    const py = 88;
+    const pw = 330;
+    const ph = 490;
+    U.drawPanel(ctx, px, py, pw, ph, 18, '#ffffff');
+
+    U.drawText(ctx, page.title, W / 2, py + 44, 21, '#333333', 'center', 'bold');
+
+    // 文案行
+    let y = py + 92;
+    if (page.art === 'merge') {
+      // 文案与示意图上下排布：示意图占下半
+      page.lines.forEach((line) => {
+        U.drawText(ctx, line, px + 26, y, 13, '#444444', 'left');
+        y += 30;
+      });
+      y += 10;
+      this.drawMergeArt(ctx, W / 2, y + 55);
+    } else if (page.art === 'field') {
+      // 示意图在上，文案在下
+      this.drawFieldArt(ctx, W / 2, py + 150);
+      y = py + 250;
+      page.lines.forEach((line) => {
+        U.drawText(ctx, line, px + 26, y, 13, '#444444', 'left');
+        y += 30;
+      });
+    } else {
+      page.lines.forEach((line) => {
+        U.drawText(ctx, line, px + 26, y, 13, '#444444', 'left');
+        y += 34;
+      });
     }
-    U.drawText(ctx, '第 1 关有手把手教学，放心冲', W / 2, py + 300, 12, '#999999');
-    const cr = this.rects.helpClose;
-    U.drawPanel(ctx, cr.x, cr.y, cr.w, cr.h, 17, '#e5ded2');
-    U.drawText(ctx, '✕', cr.x + cr.w / 2, cr.y + cr.h / 2, 16, '#666666');
+
+    // 翻页圆点
+    const dotY = py + ph - 74;
+    this.helpPages.forEach((_, i) => {
+      ctx.fillStyle = i === this.helpPage ? '#4a90d9' : '#ddd5c6';
+      ctx.beginPath();
+      ctx.arc(W / 2 + (i - (this.helpPages.length - 1) / 2) * 18, dotY, 5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // 主按钮：下一页 / 完成
+    const br = { x: (W - 220) / 2, y: py + ph - 56, w: 220, h: 44 };
+    U.drawPanel(ctx, br.x, br.y, br.w, br.h, 22, '#3aa76d');
+    U.drawText(ctx, last ? '知道了，开始摸鱼 ▶' : '下一页 ▶', W / 2, br.y + 22, 15, '#ffffff', 'center', 'bold');
+    this.rects.helpNext = br;
+
+    // 右上角跳过
+    const cr = { x: px + pw - 42, y: py + 10, w: 32, h: 32 };
+    U.drawPanel(ctx, cr.x, cr.y, cr.w, cr.h, 16, '#f0ebe1');
+    U.drawText(ctx, '✕', cr.x + cr.w / 2, cr.y + cr.h / 2, 15, '#999999');
+    this.rects.helpCloseX = cr;
+  }
+
+  // 示意图：敌人压向工位
+  drawFieldArt(ctx, cx, cy) {
+    const enemies = ['🐛', '📋', '📄'];
+    enemies.forEach((e, i) => {
+      U.drawEmoji(ctx, e, cx + (i - 1) * 60, cy, 30);
+    });
+    // 向下箭头
+    ctx.strokeStyle = '#ff6b6b';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + 20);
+    ctx.lineTo(cx, cy + 46);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, cy + 40);
+    ctx.lineTo(cx, cy + 48);
+    ctx.lineTo(cx + 6, cy + 40);
+    ctx.stroke();
+    // 工位 + 血条
+    ctx.fillStyle = '#c9a06a';
+    U.roundRectPath(ctx, cx - 70, cy + 54, 140, 22, 6);
+    ctx.fill();
+    U.drawEmoji(ctx, '💻', cx, cy + 65, 22);
+    ctx.fillStyle = '#3aa76d';
+    U.roundRectPath(ctx, cx - 70, cy + 82, 140, 8, 4);
+    ctx.fill();
+    U.drawText(ctx, '工位血条', cx + 92, cy + 86, 10, '#999999', 'left');
+  }
+
+  // 示意图：合成
+  drawMergeArt(ctx, cx, cy) {
+    const tile = (x, emoji, lv, highlight) => {
+      U.drawPanel(ctx, x - 28, cy - 28, 56, 56, 10, '#f4efe6', highlight ? '#3aa76d' : '#d8cfc0');
+      U.drawEmoji(ctx, emoji, x, cy - 4, 30);
+      U.drawPanel(ctx, x - 16, cy + 8, 32, 16, 8, '#9aa5b1');
+      U.drawText(ctx, `LV${lv}`, x, cy + 16.5, 10, '#ffffff');
+    };
+    tile(cx - 90, '☕', 1, true);
+    tile(cx - 24, '☕', 1, true);
+    // 加号与箭头
+    U.drawText(ctx, '+', cx - 57, cy, 20, '#999999', 'center', 'bold');
+    ctx.strokeStyle = '#3aa76d';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx + 14, cy);
+    ctx.lineTo(cx + 44, cy);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx + 38, cy - 6);
+    ctx.lineTo(cx + 46, cy);
+    ctx.lineTo(cx + 38, cy + 6);
+    ctx.stroke();
+    tile(cx + 90, '☕', 2, false);
+    U.drawText(ctx, '合体升级！', cx, cy + 52, 12, '#3aa76d', 'center', 'bold');
   }
 
   drawBtn(ctx, r, text, fill, color, size, stroke) {

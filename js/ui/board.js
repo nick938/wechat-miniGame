@@ -88,6 +88,7 @@ class Board {
 
   // ---------- 渲染 ----------
   render(ctx) {
+    this.renderAttackPreview(ctx);
     const b = this.battle;
     const cells = b.board.cells;
 
@@ -130,6 +131,78 @@ class Board {
         U.drawEmoji(ctx, C.WEAPONS[item.type].emoji, d.x, d.y - 30, 40);
       }
     }
+  }
+
+  // 拖拽装备时，红色半透明显示它的攻击方向/范围
+  // 原点取手指悬停的棋盘格（预览落点），手指在棋盘外则用原格
+  renderAttackPreview(ctx) {
+    const b = this.battle;
+    const d = b.board.dragging;
+    if (!d) return;
+    const item = b.board.cells[d.index];
+    if (!item) return;
+
+    let idx = cellAt(d.x, d.y);
+    if (idx < 0) idx = d.index;
+    const r = cellRect(idx);
+    const ox = r.x + r.w / 2;
+    const oy = r.y + r.h / 2;
+    const top = 58; // 战场可视区顶部
+    const wcfg = C.WEAPONS[item.type];
+
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    if (item.type === 'keyboard') {
+      // 穿透一列：按真实宽度显示覆盖带
+      const w = wcfg.width[item.lv - 1];
+      ctx.fillStyle = 'rgba(255,80,80,0.12)';
+      ctx.fillRect(ox - w / 2, top, w, oy - 24 - top);
+      ctx.strokeStyle = 'rgba(255,80,80,0.45)';
+      ctx.setLineDash([5, 5]);
+      ctx.strokeRect(ox - w / 2, top, w, oy - 24 - top);
+      ctx.setLineDash([]);
+    } else if (item.type === 'headphone') {
+      // 声波环绕：显示环绕半径圈
+      const R = wcfg.orbitR[item.lv - 1] * b.mods.orbitRMul + 12;
+      ctx.fillStyle = 'rgba(255,80,80,0.10)';
+      ctx.beginPath();
+      ctx.arc(ox, oy, R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,80,80,0.5)';
+      ctx.setLineDash([5, 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else if (item.type === 'bug') {
+      // 自爆炸弹：显示将命中的怪与爆炸半径
+      const target = b.enemies.find((e) => !e.dying);
+      if (target) {
+        const R = wcfg.radius[item.lv - 1];
+        ctx.fillStyle = 'rgba(255,80,80,0.10)';
+        ctx.strokeStyle = 'rgba(255,80,80,0.6)';
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.arc(target.x, target.y, R, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    } else {
+      // 咖啡：朝上的红色半透明宽线（方向指示）
+      const y0 = oy - 24;
+      ctx.fillStyle = 'rgba(255,80,80,0.13)';
+      ctx.beginPath();
+      ctx.moveTo(ox - 8, y0);
+      ctx.lineTo(ox + 8, y0);
+      ctx.lineTo(ox + 64, top);
+      ctx.lineTo(ox - 64, top);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,80,80,0.4)';
+      ctx.setLineDash([5, 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
   }
 }
 

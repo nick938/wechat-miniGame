@@ -122,18 +122,32 @@ function drainLevelups() {
 const app = GameGlobal.app;
 const d = GameGlobal.databus;
 
-// ---------- 1. 首页 ----------
+// ---------- 1. 首页与玩法说明弹窗 ----------
 console.log('\n[1] 首页');
 step(1);
 check('进入首页', d.scene === 'home' && app.scene === app.home);
+check('首次进入自动弹出玩法说明弹窗', app.home.panel === 'help');
 check('存档初始金币为 0', d.meta.coins === 0);
-// 玩法说明面板开合
+// 翻完 3 页（弹层无防误触，单击即可；第 3 页按钮 = 完成）
+const nBtn = () => app.home.rects.helpNext;
+const tapBtn = () => touch('start', nBtn().x + nBtn().w / 2, nBtn().y + nBtn().h / 2);
+tapBtn();
+step(0.05);
+check('弹窗翻到第 2 页', app.home.helpPage === 1);
+tapBtn();
+step(0.05);
+check('弹窗翻到第 3 页', app.home.helpPage === 2);
+tapBtn();
+step(0.05);
+check('看完弹窗关闭并落存档', app.home.panel === null && d.meta.helpSeen === true);
+// ❓ 按钮可重开、可跳过
 touch('start', 341, 59);
 step(0.05);
-check('打开玩法说明', app.home.panel === 'help');
-touch('start', 315.5, 167);
+check('❓ 重新打开玩法说明', app.home.panel === 'help' && app.home.helpPage === 0);
+const cx = app.home.rects.helpCloseX;
+touch('start', cx.x + cx.w / 2, cx.y + cx.h / 2); // 首页面板无防误触，单击关闭
 step(0.05);
-check('关闭玩法说明', app.home.panel === null);
+check('✕ 跳过弹窗', app.home.panel === null);
 
 // ---------- 2. 开始游戏（第 1 关，带手把手教学） ----------
 console.log('\n[2] 开始游戏');
@@ -244,6 +258,47 @@ tap(homeBtn.x, homeBtn.y);
 step(0.1);
 check('回到首页', d.scene === 'home' && app.scene === app.home);
 
+// ---------- 8.5 Boss 关：召唤/狂暴/击杀 + 中途退出结算 ----------
+console.log('\n[8.5] Boss 关与中途退出结算');
+d.meta.bestLevel = 4;
+tap(187.5, 320); // 开始摸鱼 → 第 4 关
+step(0.2);
+const b4 = d.battle;
+check('进入第 4 关', d.scene === 'battle' && b4.level === 4);
+// 快进到 Boss 登场（事件表 t = 关卡时长-50 = 145）
+d.debug.setTime(144);
+d.debug.setTimeLeft(60);
+step(2);
+drainLevelups();
+check('Boss 产品经理登场', !!b4.bossRef && b4.bossRef.type === 'boss');
+const cnt0 = b4.enemies.length;
+step(5); // 召唤周期 4 秒
+drainLevelups();
+check('Boss 召唤了增援', b4.enemies.length > cnt0 && b4.enemies.some((e) => e.type === 'request'));
+// 残血狂暴
+const boss = b4.bossRef;
+boss.hp = Math.round(boss.hpMax * 0.3);
+const speedBefore = boss.speed;
+step(0.2);
+drainLevelups();
+check('残血触发狂暴（提速）', boss.enraged === true && boss.speed > speedBefore);
+// 击杀 Boss
+d.debug.killAll();
+step(1);
+drainLevelups();
+check('Boss 被击杀且引用清空', b4.bossRef === null);
+// 中途退出（暂停 → 回首页）：金币要入账
+drainLevelups();
+touch('start', 348, 27); // ⏸
+step(0.05);
+const leaveBtn = center(b4.modal.rects.home);
+const coinsBeforeLeave = d.meta.coins;
+const runCoinsLeave = b4.coins;
+tap(leaveBtn.x, leaveBtn.y);
+step(0.3);
+check('中途退出金币已入账', d.scene === 'home' && d.meta.coins === coinsBeforeLeave + runCoinsLeave);
+check('提示已保存金币', !!global.__lastToast && global.__lastToast.includes('已保存'));
+
 // ---------- 9. 工位升级面板 ----------
 console.log('\n[9] 工位升级');
 const upBtn = center(app.home.rects.upgrade);
@@ -252,11 +307,11 @@ step(0.05);
 check('打开升级面板', app.home.panel === 'upgrade');
 const coinsBeforeBuy = d.meta.coins;
 const buy0 = center(app.home.rects.buys[0]);
-tap(buy0.x, buy0.y);
+touch('start', buy0.x, buy0.y); // 单击购买（首页面板无防误触，双击会连买两级）
 check('购买成功：显示器 +1 级（扣 80 金币）',
   d.meta.upgrades.screen === 1 && d.meta.coins === coinsBeforeBuy - 80);
 const closeBtn = center(app.home.rects.closePanel);
-tap(closeBtn.x, closeBtn.y);
+touch('start', closeBtn.x, closeBtn.y);
 step(0.05);
 check('关闭面板', app.home.panel === null);
 

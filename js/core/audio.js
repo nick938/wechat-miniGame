@@ -12,6 +12,8 @@ class AudioMgr {
     this.enabled = true;
     this.bgm = this.make('audio/bgm.mp3', true);
     this.boom = this.make('audio/boom.mp3', false);
+    this.hit = this.make('audio/bullet.mp3', false);
+    this._lastHit = 0;
   }
 
   make(src, loop) {
@@ -51,6 +53,18 @@ class AudioMgr {
         this.boom.play();
       } catch (e) { /* 忽略 */ }
     }
+  }
+
+  // 击杀/合成短促音效：60ms 节流，避免同帧多杀刷屏
+  playHit() {
+    if (!this.hit || !this.enabled) return;
+    const now = Date.now();
+    if (now - this._lastHit < 60) return;
+    this._lastHit = now;
+    try {
+      this.hit.stop();
+      this.hit.play();
+    } catch (e) { /* 忽略 */ }
   }
 }
 

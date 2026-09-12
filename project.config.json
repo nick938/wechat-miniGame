@@ -56,6 +56,14 @@
       {
         "type": "folder",
         "value": "test"
+      },
+      {
+        "type": "folder",
+        "value": "tools"
+      },
+      {
+        "type": "folder",
+        "value": "软著材料"
       }
     ],
     "include": []

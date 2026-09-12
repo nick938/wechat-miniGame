@@ -12,6 +12,7 @@ class Result {
   static open(scene, win) {
     const d = scene.app.databus;
     const b = d.battle;
+    b.settled = true; // 标记已结算，防止中途退出逻辑重复入账
     b.winBonus = b.winBonus || 0;
 
     // 本局收益入账（只入一次）

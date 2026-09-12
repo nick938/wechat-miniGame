@@ -17,6 +17,7 @@ function defaultMeta() {
     totalKills: 0,
     chest: { date: '', used: 0 }, // 每日广告宝箱
     soundOn: true,
+    helpSeen: false,       // 首页玩法说明弹窗已看过
     tutorialDone: false,   // 合成教学（手把手）完成
     skillTipDone: false,   // 首次三选一提示已展示过
   };
@@ -79,6 +80,7 @@ class Databus {
       charLevel: 1,
       kills: 0,
       revived: false,
+      settled: false, // 本局金币是否已入账（防中途退出重复/遗漏结算）
       rerollLeft: C.REROLL_PER_RUN,
       pendingLevels: 0,
       supplyTimer: C.SUPPLY_INTERVAL * 0.6, // 首次补给稍早一点

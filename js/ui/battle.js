@@ -36,6 +36,7 @@ class BattleScene {
       : null;
     this.board.onMerge = (idx, item) => {
       U.vibrate();
+      this.app.audio.playHit();
       track('weapon_merge', { lv: item.lv, type: item.type });
       this.addFx('ring', WeaponSys.cellCenterX(idx), WeaponSys.cellCenterY(idx), { r1: 34, color: '#69cd8c' });
       this.addFx('text', WeaponSys.cellCenterX(idx), WeaponSys.cellCenterY(idx) - 24, {
@@ -94,8 +95,14 @@ class BattleScene {
     this.b.bombs.push(bomb);
   }
 
-  damageEnemy(e, dmg) {
+  damageEnemy(e, dmg, showNum = true) {
     e.takeDamage(dmg);
+    // 伤害飘字（耳机持续音免展示；特效池过载时丢弃保帧率）
+    if (showNum && this.b.fxs.length < 40) {
+      this.addFx('text', e.x + U.rand(-10, 10), e.y - e.r - 6, {
+        text: String(Math.round(dmg)), color: '#ffffff', size: 10, life: 0.45,
+      });
+    }
   }
 
   explodeAt(x, y, dmg, radius) {
@@ -112,6 +119,10 @@ class BattleScene {
     const b = this.b;
     b.kills++;
     b.coins += Math.max(1, Math.round(e.coin * b.mods.coinMul));
+
+    // 击杀小爆点（打击感）
+    this.addFx('boom', e.x, e.y, { r0: 4, r1: e.r + 12, color: '#ffffff', life: 0.25 });
+    if (!e.boss) this.app.audio.playHit();
     const levels = Skills.gainExp(b, e.exp);
     if (levels > 0) b.pendingLevels += levels;
 
@@ -230,9 +241,17 @@ class BattleScene {
     }
     b.bombs = b.bombs.filter((bomb) => !bomb.dead);
 
-    // 敌人
+    // 敌人（Boss 的召唤/狂暴特效在这里统一结算）
     for (const e of b.enemies) {
       if (!e.dying) e.update(dt, b);
+      if (e.summonNow) {
+        e.summonNow = false;
+        this.spawnBossMinions(e);
+      }
+      if (e.justEnraged) {
+        e.justEnraged = false;
+        this.addFx('text', e.x, e.y - 40, { text: '需求爆发！', color: '#ff6b6b', size: 14 });
+      }
     }
     // 死亡结算（可能引发连锁：分裂/爆炸），最多处理 5 轮防深度递归
     for (let round = 0; round < 5; round++) {
@@ -311,6 +330,22 @@ class BattleScene {
     this.board.onTouchEnd(x, y);
   }
 
+  // 中途重开/退出：本局已得金币入账，不让玩家白打
+  settleAbandon() {
+    const d = this.app.databus;
+    const b = d.battle;
+    if (!b || b.settled) return;
+    b.settled = true;
+    if (b.coins > 0) {
+      d.meta.coins += b.coins;
+      d.meta.totalKills += b.kills;
+      d.saveMeta();
+      if (typeof wx !== 'undefined' && wx.showToast) {
+        wx.showToast({ title: `已保存本局金币 +${b.coins} 🪙`, icon: 'none' });
+      }
+    }
+  }
+
   pauseTouch(x, y) {
     const b = this.b;
     const m = b.modal;
@@ -320,9 +355,11 @@ class BattleScene {
     if (hit(R.resume)) {
       b.modal = null;
     } else if (hit(R.retry)) {
+      this.settleAbandon();
       b.modal = null;
       this.start(b.level);
     } else if (hit(R.home)) {
+      this.settleAbandon();
       b.modal = null;
       this.exitToHome();
     } else if (hit(R.sound)) {

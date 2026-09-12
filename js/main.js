@@ -7,11 +7,14 @@ const Databus = require('./core/databus');
 const AudioMgr = require('./core/audio');
 const AdService = require('./services/ads');
 const Share = require('./services/share');
+const Monitor = require('./services/monitor');
 const Home = require('./ui/home');
 const Battle = require('./ui/battle');
 
 class App {
   constructor() {
+    Monitor.init(); // 全局错误 → 微信实时日志
+
     const databus = new Databus();
     GameGlobal.databus = databus;
     this.databus = databus;

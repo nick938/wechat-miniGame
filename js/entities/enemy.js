@@ -63,18 +63,18 @@ class Enemy {
       battle.baseHp -= this.dps * dt * mods.enemyDpsMul;
     }
 
-    // Boss：召唤需求 + 残血狂暴
+    // Boss：召唤需求 + 残血狂暴（通过标志位让战场结算特效与增援）
     if (this.boss && !this.dying) {
       this.summonTimer -= dt;
       if (this.summonTimer <= 0) {
         this.summonTimer = this.enraged ? 4.5 : 6;
-        battle.spawnBossMinions(this);
+        this.summonNow = true;
       }
       if (!this.enraged && this.hp < this.hpMax * 0.4) {
         this.enraged = true;
+        this.justEnraged = true;
         this.speed *= 1.35;
         this.dps *= 1.5;
-        battle.addFx('text', this.x, this.y - 40, { text: '需求爆发！', color: '#ff6b6b', size: 14 });
       }
     }
   }

@@ -86,13 +86,13 @@ function updateHeadphone(scene, b, item, i, cx, cy, dt, time, mods) {
     st['x' + k] = ox;
     st['y' + k] = oy;
 
-    // 接触伤害：每个敌人有独立受击冷却
+    // 接触伤害：每个敌人有独立受击冷却（持续伤害不弹伤害数字）
     for (const e of b.enemies) {
       if (e.dying) continue;
       if (time - e.lastOrbHit < wcfg.hitCd) continue;
       if (U.dist(ox, oy, e.x, e.y) < e.r + 10) {
         e.lastOrbHit = time;
-        scene.damageEnemy(e, dmg);
+        scene.damageEnemy(e, dmg, false);
       }
     }
   }
