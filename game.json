@@ -1,6 +1,4 @@
 {
   "deviceOrientation": "portrait",
-  "openDataContext": {
-    "root": "openDataContext"
-  }
+  "openDataContext": "openDataContext"
 }
