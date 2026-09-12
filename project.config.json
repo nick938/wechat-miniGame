@@ -51,6 +51,14 @@
     "ignore": [
       {
         "type": "folder",
+        "value": ".mimosa"
+      },
+      {
+        "type": "folder",
+        "value": ".git"
+      },
+      {
+        "type": "folder",
         "value": "legacy"
       },
       {
