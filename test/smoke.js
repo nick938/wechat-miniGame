@@ -2,6 +2,7 @@
  * 无头冒烟测试：在 Node 里用桩替身模拟 wx/canvas，跑通完整游戏循环
  * 运行：node test/smoke.js
  * 覆盖：首页→进关→刷怪击杀→拖拽合成→三选一→暂停→胜利→双倍奖励→下一关→失败→复活→结算→工位升级→存档
+ *      →减伤/护盾词缀生效→技能刷新扣次数时机→链式引爆不留僵尸怪
  */
 'use strict';
 
@@ -340,6 +341,89 @@ check('关闭面板', app.home.panel === null);
 console.log('\n[10] 存档');
 const saved = storageMap.get('moyu_defense_save_v1');
 check('存档已写入 storage', !!saved && saved.bestLevel >= 2 && saved.totalKills > 0 && saved.bestScore > 0);
+
+// ---------- 11. 词缀生效：工作群静音（减伤）与明天再说（护盾） ----------
+console.log('\n[11] 减伤与护盾');
+const Skills = require('../js/systems/skills');
+const CFG = require('../js/core/config');
+d.meta.bestLevel = 1;
+tap(187.5, 320); // 新开一局：词缀回到初始值，便于断言精确伤害
+step(0.2);
+const b5 = d.battle;
+// 造一只贴在工位线上、打不死的怪当稳定伤害源（bug dps = 4/s）
+b5.enemies.length = 0;
+app.battle.spawnEnemy('bug');
+const dummy = b5.enemies[0];
+dummy.hpMax = dummy.hp = 1e9;
+dummy.attacking = true;
+dummy.y = 340;
+b5.baseHp = b5.baseHpMax;
+b5.baseShield = 0;
+Skills.apply(b5, CFG.SKILLS.find((s) => s.id === 'shield'));
+check('「明天再说」给出 50 点护盾', b5.baseShield === 50);
+step(1); // 约 4 点伤害，应全部由护盾吃掉
+check('护盾真的挡伤害、血条不掉', b5.baseShield > 40 && b5.baseShield < 50 && b5.baseHp === b5.baseHpMax);
+check('护盾按伤害量递减（不是装饰）', b5.baseShield < 50);
+// 工作群静音：受到的伤害 -15%
+Skills.apply(b5, CFG.SKILLS.find((s) => s.id === 'mute'));
+b5.baseShield = 0;
+const hpBeforeMute = b5.baseHp;
+step(1);
+const taken = hpBeforeMute - b5.baseHp;
+check(`「工作群静音」让工位伤害真的减少 15%（实测 ${taken.toFixed(2)} / 基准 4.00）`,
+  taken > 4 * 0.75 && taken < 4 * 0.95);
+
+// ---------- 12. 技能刷新：看完广告才扣次数 ----------
+console.log('\n[12] 技能刷新时机');
+d.debug.addExp(400);
+step(0.1);
+check('弹出三选一（带刷新按钮）', b5.modal && b5.modal.type === 'levelup' && !!b5.modal.rects.reroll);
+const rerollBefore = b5.rerollLeft;
+const rrBtn = center(b5.modal.rects.reroll);
+tap(rrBtn.x, rrBtn.y);
+check('刷新进入广告、此时还没扣次数', !!app.adService.simulating && b5.rerollLeft === rerollBefore);
+tap(rrBtn.x, rrBtn.y); // 广告播放期间重复点按
+check('播放中重复点按被忽略', b5.rerollLeft === rerollBefore &&
+  app.adService.simulating && app.adService.simulating.placement === 'reroll');
+step(3.2);
+check('看完广告才扣 1 次并重抽选项', b5.rerollLeft === rerollBefore - 1 &&
+  b5.modal && b5.modal.type === 'levelup' && b5.modal.options.length === 3);
+// 看门狗：真机上广告回调偶发不触发时，占用位不能永久卡死（那会让后续广告全部不可用）
+app.adService.showing = true;
+app.adService.showTimer = 179;
+step(2);
+check('广告占用位有超时兜底', app.adService.showing === false);
+drainLevelups();
+
+// ---------- 13. 链式引爆结算（回归：长连锁不能留僵尸怪卡关） ----------
+console.log('\n[13] 链式引爆');
+d.meta.bestLevel = 1;
+tap(187.5, 320);
+step(0.2);
+const b6 = d.battle;
+const CHAIN = 15; // 3 行 × 5 列
+b6.enemies.length = 0;
+// 隔离出纯连锁场景：拆掉棋盘武器、清掉开局已打出的弹丸。
+// 键帽冲击波只按 x 判定命中，会顺着弹道一帧秒掉整列测试怪，等于多出好几个起爆点，
+// 把连锁深度压到 5 轮以内，那样就测不到「一帧内结算完整条连锁」了
+b6.projectiles.length = 0;
+b6.bombs.length = 0;
+b6.board.cells = b6.board.cells.map(() => null);
+b6.mods.killExplode = 1; // 100% 击杀引爆，把连锁拉到最长
+for (let i = 0; i < CHAIN; i++) {
+  app.battle.spawnEnemy('bug');
+  const e = b6.enemies[b6.enemies.length - 1];
+  e.baseX = e.x = 40 + (i % 5) * 60;        // 同行间距 60 < 爆炸范围（半径 70 + 怪半径 14）
+  e.y = 150 + Math.floor(i / 5) * 60;
+  e.sway = 0;                               // 关掉左右摇摆，保证连锁距离稳定可复现
+  e.hpMax = 100;                            // 爆炸伤害 = 血上限 30% = 30
+  e.hp = 1;                                 // 一击必死，连锁才能一路传下去
+}
+const killsBeforeChain = b6.kills;
+b6.enemies[0].dying = true; // 只点着第一个，其余全靠引爆连坐
+step(1 / 60); // 只跑一帧：整条连锁必须在同一个子步进里结算完，不能跨帧慢慢消化
+check('链式引爆在同一帧内结算完（不留残影）', b6.enemies.every((e) => !e.dying));
+check(`${CHAIN} 个敌人全部结算入账`, b6.kills - killsBeforeChain === CHAIN);
 
 // ---------- 结果 ----------
 console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

@@ -20,7 +20,6 @@ class Result {
     const score = C.calcScore(b);
     b.finalScore = score;
     const newRecord = score > (d.meta.bestScore || 0);
-    b.newRecord = newRecord && d.meta.bestScore > 0 ? true : score > 0; // 首局也算新纪录
     if (newRecord) d.meta.bestScore = score;
 
     // 本局收益入账（只入一次）

@@ -6,6 +6,8 @@
  */
 const C = require('../core/config');
 
+const SHOW_TIMEOUT = 180; // 秒：广告占用位的看门狗上限
+
 let instance;
 
 class AdService {
@@ -16,6 +18,8 @@ class AdService {
     this._ad = null;
     this._broken = false;
     this.simulating = null; // {placement, t, dur, onReward}
+    this.showing = false;   // 激励视频进行中：挡住重复触发（否则同一奖励可能白扣/多发）
+    this.showTimer = 0;     // 占用计时，供看门狗用
   }
 
   getAd() {
@@ -32,6 +36,9 @@ class AdService {
   }
 
   show(placement, onReward) {
+    if (this.showing) return; // 上一个广告还没结束，忽略这次触发
+    this.showing = true;
+    this.showTimer = 0;
     const { track } = require('./track');
     track('ad_show', { placement });
     const reward = () => {
@@ -42,6 +49,8 @@ class AdService {
     if (ad && !this._broken) {
       const onClose = (res) => {
         ad.offClose(onClose);
+        this.showing = false;
+        this.showTimer = 0;
         if (res && res.isEnded) reward();
         else if (typeof wx !== 'undefined' && wx.showToast) {
           wx.showToast({ title: '看完整个广告才有奖励哦', icon: 'none' });
@@ -54,7 +63,7 @@ class AdService {
           .catch(() => {
             ad.offClose(onClose);
             this._broken = true;
-            this.simulate(placement, reward);
+            this.simulate(placement, reward); // showing 保持占用，交给模拟广告收尾
           });
       });
     } else {
@@ -67,11 +76,22 @@ class AdService {
   }
 
   tick(dt) {
+    // 看门狗：真机上广告回调有可能不触发，超时就强制解占用，
+    // 否则 showing 永远为真、后续广告全部被挡掉（比重复触发更糟）
+    if (this.showing) {
+      this.showTimer += dt;
+      if (this.showTimer > SHOW_TIMEOUT) {
+        this.showing = false;
+        this.showTimer = 0;
+      }
+    }
     const s = this.simulating;
     if (!s) return;
     s.t -= dt;
     if (s.t <= 0) {
       this.simulating = null;
+      this.showing = false;
+      this.showTimer = 0;
       s.onReward();
     }
   }

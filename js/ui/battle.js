@@ -266,10 +266,12 @@ class BattleScene {
         this.addFx('text', e.x, e.y - 40, { text: '需求爆发！', color: '#ff6b6b', size: 14 });
       }
     }
-    // 死亡结算（可能引发连锁：分裂/爆炸），最多处理 5 轮防深度递归
-    for (let round = 0; round < 5; round++) {
+    // 死亡结算（可能引发连锁：分裂/爆炸）
+    // 一帧内把整条连锁清干净：每轮至少移除一个 dying 敌人、且本轮不会往 b.enemies 里加新敌人，
+    // 所以必然收敛；guard 只是防意外死循环的兜底（固定轮数上限会让长连锁跨帧慢慢消化）
+    let guard = b.enemies.length + 1;
+    while (guard-- > 0 && b.enemies.some((e) => e.dying)) {
       const dying = b.enemies.filter((e) => e.dying);
-      if (!dying.length) break;
       b.enemies = b.enemies.filter((e) => !e.dying);
       for (const e of dying) this.onEnemyKilled(e);
     }

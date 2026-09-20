@@ -86,9 +86,10 @@ class LevelUp {
     }
     if (hit(m.rects.reroll)) {
       const adService = app.adService;
-      battle.rerollLeft--;
+      // 次数等拿到广告奖励再扣：中途关掉广告不该白扣一次刷新
       adService.show('reroll', () => {
-        if (battle.modal && battle.modal.type === 'levelup') {
+        if (battle.modal && battle.modal.type === 'levelup' && battle.rerollLeft > 0) {
+          battle.rerollLeft--;
           battle.modal.options = Skills.rollOffers(battle, 3);
         }
       });

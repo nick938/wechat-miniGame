@@ -4,6 +4,7 @@
  */
 const C = require('../core/config');
 const U = require('../core/utils');
+const { damageBaseHp } = require('../systems/damage');
 
 let idCounter = 1;
 
@@ -58,9 +59,9 @@ class Enemy {
         this.attacking = true;
       }
     } else {
-      // 啃工位
+      // 啃工位（走统一结算：减伤词缀 → 护盾吸收 → 血条）
       this.attackAnim += dt;
-      battle.baseHp -= this.dps * dt * mods.enemyDpsMul;
+      damageBaseHp(battle, this.dps * dt * mods.enemyDpsMul);
     }
 
     // Boss：召唤需求 + 残血狂暴（通过标志位让战场结算特效与增援）
