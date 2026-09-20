@@ -189,6 +189,9 @@ for (let i = 0; i < 25 && !b.modal; i++) {
 check('弹出胜利结算', b.modal && b.modal.type === 'result' && b.modal.win === true);
 check('结算含摸鱼分且刷新历史最高', b.modal.score > 0 && d.meta.bestScore >= b.modal.score && b.modal.newRecord === true);
 check('结算按钮把"能换到什么"写清楚了', H.hasText('本局金币 ×2'));
+check('胜利结算显示本局数据（合成/升级/最强装备）',
+  H.hasText('合成') && H.hasText('升级') && H.hasText('最强装备'));
+check('胜利结算预告下一关（带关卡名，只有预告行会带名字）', H.hasText('下一关：第 2 关 临时需求'));
 const coinsBeforeDouble = d.meta.coins;
 const runCoins = b.coins;
 const dbl = center(b.modal.rects.double);
@@ -1292,6 +1295,28 @@ app.adService.onAnyReward('double');
 app.adService.onAnyReward('chest');
 check('看完广告推进"自愿看广告"任务（且封顶 1）',
   Daily.state(d).find((t) => t.id === 'adOne').progress === 1);
+
+// ---------- 29. 关卡静态信息必须是纯函数（渲染不能抽随机数） ----------
+console.log('\n[29] 关卡静态信息与随机数流');
+H.setSeed(12345);
+CFG.levelMeta(4);
+CFG.levelMeta(9);
+const afterPure = Math.random();
+H.setSeed(12345);
+const baseline = Math.random();
+check('levelMeta 不消耗随机数（所以可以在渲染里调用）', afterPure === baseline);
+H.setSeed(12345);
+CFG.buildLevel(5);
+const afterBuild = Math.random();
+check('buildLevel 会消耗随机数（只能在开新关时调用，不能放进 render）', afterBuild !== baseline);
+check('levelMeta 给出的信息与 buildLevel 一致（同一份来源）',
+  CFG.levelMeta(4).name === CFG.buildLevel(4).name &&
+  CFG.levelMeta(4).isBoss === CFG.buildLevel(4).isBoss &&
+  CFG.levelMeta(4).bossType === CFG.buildLevel(4).bossType);
+check('Boss 关的预告能点名到具体 Boss（第 4 关产品经理 / 第 8 关直属领导 / 第 12 关大老板）',
+  CFG.ENEMIES[CFG.levelMeta(4).bossType].name === '产品经理' &&
+  CFG.ENEMIES[CFG.levelMeta(8).bossType].name === '直属领导' &&
+  CFG.ENEMIES[CFG.levelMeta(12).bossType].name === '大老板');
 
 // ---------- 结果 ----------
   console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

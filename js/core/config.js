@@ -120,6 +120,20 @@ function levelPool(n) {
   return pool;
 }
 
+// 关卡的"静态信息"：纯函数，不抽随机事件。
+// 意义：UI（首页显示下一关名、结算面板预告）必须用这个，而不是 buildLevel——
+// buildLevel 会 Math.random() 抽刷怪事件，从 render 里调用会污染游戏的随机数流（每帧抽一次）
+function levelMeta(n) {
+  const isBoss = n % BOSS_EVERY === 0;
+  const bossIdx = isBoss ? Math.floor(n / BOSS_EVERY - 1) % BOSS_HP_MUL_BY_INDEX.length : -1;
+  return {
+    index: n,
+    name: n <= LEVEL_NAMES.length ? LEVEL_NAMES[n - 1] : `无尽 · 第${n}周`,
+    isBoss,
+    bossType: isBoss ? BOSS_ROTATION[bossIdx] : null,
+  };
+}
+
 // 生成第 n 关配置（n 从 1 开始；>8 为无尽）
 // 曲线形状：Boss 关做"墙"（血量额外 ×1.6），非 Boss 关放缓（每关 +26%）
 // —— 这样技巧/资源积累够的玩家能在 Boss 关之后继续往深走，不够的会卡在 Boss 关
@@ -145,17 +159,13 @@ function buildLevel(n) {
   events.push({ t: duration * 0.55, type: 'product', count: 2, interval: 1.2 });
   if (isBoss) events.push({ t: duration - 50, type: bossType, count: 1, interval: 1 });
 
-  return {
-    index: n,
-    name: n <= LEVEL_NAMES.length ? LEVEL_NAMES[n - 1] : `无尽 · 第${n}周`,
+  return Object.assign(levelMeta(n), {
     duration,
     hpMul,
     spMul,
-    isBoss,
-    bossType,
     bossAt: isBoss ? duration - 50 : 0,   // Boss 出场秒数（前预警用）
     events,
-  };
+  });
 }
 
 // ---------- 失败复盘 ----------
@@ -307,6 +317,7 @@ module.exports = {
   HOT_COL_CHANCE, HOT_COL_BAND, HOT_COL_SHOW_SEC,
   lossTip,
   buildLevel,
+  levelMeta,
   levelPool,
   SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR, MASTERY_COINS,
   UPGRADES, UPGRADE_COST,

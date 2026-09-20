@@ -313,7 +313,7 @@ class Home {
     U.drawText(ctx, '上班是不可能认真上班的', W / 2, 180 + bob, 13, '#999999');
 
     const nextLv = d.meta.bestLevel;
-    const lvCfg = C.buildLevel(nextLv);
+    const lvCfg = C.levelMeta(nextLv); // 纯函数：渲染绝不能抽随机数
     U.drawPanel(ctx, (W - 300) / 2, 212, 300, 52, 12, '#ffffff');
     U.drawText(ctx, `第 ${nextLv} 关 · ${lvCfg.name}`, W / 2, 232, 15, '#4a90d9', 'center', 'bold');
     U.drawText(ctx, `🏆 最高摸鱼分 ${d.meta.bestScore} ｜ 累计击退 ${d.meta.totalKills} 个需求`, W / 2, 252, 11, '#aaaaaa');

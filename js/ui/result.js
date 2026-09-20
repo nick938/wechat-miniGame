@@ -63,8 +63,8 @@ class Result {
     ctx.fillStyle = 'rgba(30,30,40,0.6)';
     ctx.fillRect(0, 0, W, H);
 
-    const panelY = H / 2 - 230;
-    U.drawPanel(ctx, W / 2 - 160, panelY, 320, 470, 16, '#ffffff');
+    const panelY = H / 2 - 256;
+    U.drawPanel(ctx, W / 2 - 160, panelY, 320, 520, 16, '#ffffff');
     U.drawText(ctx, m.win ? '🎉 摸鱼成功！' : '😤 工位沦陷…', W / 2, panelY + 44, 26, m.win ? '#3aa76d' : '#ff6b6b', 'center', 'bold');
     U.drawText(ctx, `第 ${b.level} 关 · ${b.cfg.name}`, W / 2, panelY + 78, 14, '#888888');
 
@@ -84,8 +84,27 @@ class Result {
     U.drawText(ctx, `${b.kills}`, W / 2 + 70, statY + 28, 20, '#4a90d9', 'center', 'bold');
     U.drawText(ctx, `💰 总金币 ${d.meta.coins}`, W / 2, panelY + 258, 14, '#666666');
 
+    // 本局数据：让玩家知道这一局"是怎么打的"，也给失败后的下一局一个参照
+    const best = b.board.cells.filter(Boolean).reduce((m, c) => (c.lv > m.lv ? c : m), { lv: 0, type: null });
+    const statParts = [
+      `合成 ${b.merges} 次`,
+      `升级 ${Math.max(0, b.charLevel - 1)} 次`,
+      b.recycled > 0 ? `回收 ${b.recycled} 件` : null,
+    ].filter(Boolean).join(' · ');
+    U.drawText(ctx, statParts, W / 2, panelY + 280, 11, '#888888');
+    if (best.lv > 0) {
+      U.drawText(ctx, `最强装备：${C.WEAPONS[best.type].name} LV${best.lv}`, W / 2, panelY + 298, 11, '#888888');
+    }
+    // 下一关预告：赢了才显示，让"再打一关"有明确预期（Boss 关提前点名）
+    if (m.win) {
+      const next = C.levelMeta(b.level + 1);
+      const nb = next.isBoss ? C.ENEMIES[next.bossType] : null;
+      U.drawText(ctx, nb ? `下一关：第 ${next.index} 关 ${next.name} · ${nb.emoji}${nb.name} 登场`
+        : `下一关：第 ${next.index} 关 ${next.name}`,
+      W / 2, panelY + 322, 12, nb ? '#ff6b6b' : '#4a90d9', 'center', 'bold');
+    }
     const rects = {};
-    let y = panelY + 292;
+    let y = m.win ? panelY + 344 : panelY + 292;
     if (m.win) {
       if (!m.doubled) {
         rects.double = { x: (W - BTN_W) / 2, y, w: BTN_W, h: BTN_H };
