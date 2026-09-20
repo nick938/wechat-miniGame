@@ -27,11 +27,12 @@ function getSharedCanvas() {
   }
 }
 
-// 通知开放数据域刷新好友榜（开放后调用一次即可）
-function requestRefresh() {
+// 通知开放数据域刷新好友榜（顺带把"我的最高分"传过去：开放数据域读不到主域存档，
+// 有了它才能画"我是第几名 / 再摸多少分超过谁"）
+function requestRefresh(myScore) {
   try {
     if (!available()) return;
-    wx.getOpenDataContext().postMessage({ type: 'refresh' });
+    wx.getOpenDataContext().postMessage({ type: 'refresh', myScore: myScore || 0 });
   } catch (e) { /* 忽略 */ }
 }
 

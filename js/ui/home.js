@@ -218,7 +218,7 @@ class Home {
       track('codex_open', { claimable: Ach.claimableCount(d) });
     } else if (hit(R.rank)) {
       this.panel = 'rank';
-      LB.requestRefresh(); // 打开时通知开放数据域刷新好友榜
+      LB.requestRefresh(d.meta.bestScore); // 打开时通知开放数据域刷新好友榜（带上我的最高分）
     } else if (hit(R.start)) {
       U.vibrate();
       this.app.startBattle(d.meta.bestLevel);

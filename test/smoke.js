@@ -813,7 +813,67 @@ exitToHome();
   adSvc._ad = null;
   delete wx.createRewardedVideoAd;
 
-  // ---------- 结果 ----------
+  // ---------- 22. 分享裂变与好友榜可读性 ----------
+console.log('\n[22] 分享裂变');
+const Share = require('../js/services/share');
+const LB = require('../js/services/leaderboard');
+const Rank = require('../openDataContext/rank.js');
+const fs = require('fs');
+exitToHome();
+check('回到首页（本节前提）', d.scene === 'home');
+// 文案：只用真实数据，不再编造百分比
+const t1 = Share.buildTitle(120, 7, 3456);
+check('分享文案带真实分数与关卡', t1.indexOf('3456') >= 0 && t1.indexOf('第 7 关') >= 0);
+check('分享文案不再出现编造的百分比', t1.indexOf('%') < 0 && t1.indexOf('92') < 0);
+const t2 = Share.buildTitle(30, 3, 0);
+check('没有分数时用关卡与击杀数（同样不编造）', t2.indexOf('第 3 关') >= 0 && t2.indexOf('30') >= 0 && t2.indexOf('%') < 0);
+// 主动分享：走真实调用，带 query 与埋点
+d.meta.bestScore = 4321;
+d.meta.bestLevel = 9;
+const sharesBefore = H.shares.length;
+const shareEvBefore = H.countEvents('share');
+const shareBtn = app.home.rects.share;
+touch('start', shareBtn.x + shareBtn.w / 2, shareBtn.y + shareBtn.h / 2); // 首页按钮没有防误触，单击 = 一次分享
+step(0.05);
+check('点分享按钮调用了微信分享接口，且只调一次', H.shares.length === sharesBefore + 1);
+check('分享内容带真实战绩与来源参数',
+  H.shares[H.shares.length - 1].title.indexOf('4321') >= 0 && H.shares[H.shares.length - 1].query === 'from=share');
+check('分享有埋点（后台可算分享率）', H.countEvents('share') === shareEvBefore + 1);
+// 右上角转发：必须注册 onShareAppMessage，且文案同样带战绩
+check('已注册右上角转发回调', typeof H.shareHandler === 'function');
+const menuShare = H.shareHandler && H.shareHandler();
+check('右上角转发也带真实战绩', !!menuShare && menuShare.title.indexOf('4321') >= 0);
+check('转发埋点区分来源', H.events.some((e) => e.ev === 'share' && e.params && e.params.from === 'menu'));
+// 分享卡片图：存在且是 5:4
+check('分享卡片图存在', fs.existsSync(Share.SHARE_IMAGE));
+const png = fs.readFileSync(Share.SHARE_IMAGE);
+const pngW = png.readUInt32BE(16);
+const pngH = png.readUInt32BE(20);
+check(`分享卡片图是 5:4（实测 ${pngW}x${pngH}）`, pngW === 500 && pngH === 400);
+check('分享参数里带上了卡片图', H.shares[H.shares.length - 1].imageUrl === Share.SHARE_IMAGE);
+// 好友榜：名次与"追赶目标"的算法（开放数据域里跑不了 Node，这里直接测那份纯函数）
+const friends = [
+  { nickname: '阿强', score: 9000 },
+  { nickname: '老王', score: 5000 },
+  { nickname: '小李', score: 3000 },
+  { nickname: '我', score: 4200 },
+];
+check('名次按比自己高的人数算', Rank.myRank(friends, 4200) === 3);
+check('名次：分数最高时是第 1 名', Rank.myRank(friends, 99999) === 1);
+check('名次：分数最低时排最后', Rank.myRank(friends, 1) === 5);
+const tgt = Rank.nextTarget(friends, 4200);
+check('追赶目标 = 分数刚好比自己高的那个（含差值）',
+  !!tgt && tgt.nickname === '老王' && tgt.gap === 801);
+check('已经是第一名时没有追赶目标', Rank.nextTarget(friends, 99999) === null);
+check('没分时不乱给追赶目标', Rank.nextTarget(friends, 0).nickname === '小李');
+// 主域把"我的最高分"传给了开放数据域（否则画不出名次与追赶目标）
+let posted = null;
+wx.getOpenDataContext = () => ({ postMessage: (m) => { posted = m; }, canvas: null });
+LB.requestRefresh(4321);
+check('打开好友榜时把最高分传给了开放数据域',
+  !!posted && posted.type === 'refresh' && posted.myScore === 4321);
+
+// ---------- 结果 ----------
   console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);
   process.exit(fail ? 1 : 0);
 })();

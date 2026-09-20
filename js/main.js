@@ -35,7 +35,12 @@ class App {
     // render.js 把触摸事件转发到 GameGlobal.app
     GameGlobal.app = this;
 
-    Share.initMenu();
+    // 右上角"转发"也要带战绩：传入取数函数，转发时实时读；
+    // 只在战斗场景里才把 battle 交出去（回首页后 battle 仍是上一局的残留对象）
+    Share.initMenu(() => ({
+      meta: this.databus.meta,
+      battle: this.databus.scene === 'battle' ? this.databus.battle : null,
+    }));
 
     this.last = 0;
     this.aniId = requestAnimationFrame(this.loop.bind(this));
