@@ -873,6 +873,78 @@ LB.requestRefresh(4321);
 check('打开好友榜时把最高分传给了开放数据域',
   !!posted && posted.type === 'refresh' && posted.myScore === 4321);
 
+// ---------- 23. 内容厚度：Boss 轮换 / 会议邀请 / 催进度 / 关卡主题 / 摸鱼分权重 ----------
+console.log('\n[23] 内容厚度');
+exitToHome();
+check('回到首页（本节前提）', d.scene === 'home');
+// Boss 轮换：每 4 关换一种，循环
+check('Boss 按 4/8/12 关轮换三种并循环',
+  CFG.buildLevel(4).bossType === 'boss' &&
+  CFG.buildLevel(8).bossType === 'bossLead' &&
+  CFG.buildLevel(12).bossType === 'bossBig' &&
+  CFG.buildLevel(16).bossType === 'boss');
+check('非 Boss 关没有 Boss 类型', CFG.buildLevel(3).bossType === null);
+// 会议邀请：坦克怪，且"抗打"是真的（实测不是只写在配置里）
+check('会议邀请在敌人表里且带抗伤', CFG.ENEMIES.meeting && CFG.ENEMIES.meeting.dmgTakenMul < 1);
+check('第 5 关开始出现会议邀请', CFG.levelPool(5).indexOf('meeting') >= 0 && CFG.levelPool(4).indexOf('meeting') < 0);
+d.meta.bestLevel = 1;
+tap(187.5, 320);
+step(0.2);
+const b14 = d.battle;
+b14.enemies.length = 0;
+app.battle.spawnEnemy('meeting');
+const tank = b14.enemies[0];
+tank.hpMax = tank.hp = 1000;
+const hpBeforeTank = tank.hp;
+app.battle.damageEnemy(tank, 100, false);
+check(`会议邀请挨 100 只掉 ${Math.round(100 * CFG.ENEMIES.meeting.dmgTakenMul)}（抗伤生效）`,
+  Math.round(hpBeforeTank - tank.hp) === Math.round(100 * CFG.ENEMIES.meeting.dmgTakenMul));
+// 直属领导"催进度"：实测让怪走得更快
+b14.enemies.length = 0;
+app.battle.spawnEnemy('group');
+app.battle.spawnEnemy('group');
+const rFast = b14.enemies[0];
+const rSlow = b14.enemies[1];
+rFast.y = rSlow.y = 0;
+rFast.x = rSlow.x = 100;
+rFast.baseX = rSlow.baseX = 100;
+rFast.sway = rSlow.sway = 0;
+rFast.rallyMul = 1.5;
+rFast.rallyUntil = b14.time + 5;
+step(0.5);
+check('被"催进度"的敌人确实走得更快', rFast.y > rSlow.y * 1.2);
+// 领导登场时会给全场加速（走真实关卡与结算路径）
+exitToHome();
+d.meta.bestLevel = 8;
+tap(187.5, 320);
+step(0.2);
+const b15 = d.battle;
+check('进入第 8 关（直属领导）', b15.level === 8 && b15.cfg.bossType === 'bossLead');
+app.battle.spawnEnemy('group'); // 留一只小怪在场上，方便观察"催进度"
+d.debug.setTime(b15.cfg.bossAt + 0.1);
+d.debug.setTimeLeft(60);
+step(0.3);
+const lead = b15.bossRef;
+check('直属领导能正常登场', !!lead && lead.type === 'bossLead');
+if (lead) {
+  lead.rallyTimer = 0.01; // 立刻触发一次"催进度"
+  step(0.2);
+  check('催进度让场上敌人进入加速状态', b15.enemies.some((e) => e.rallyUntil > b15.time));
+  check('Boss 血条画的是当前这位的名字', H.hasText('直属领导'));
+}
+// 关卡主题：关卡名与刷怪组合对得上
+check('第 4 关（Bug 大爆发）刷更多 Bug',
+  CFG.levelPool(4).filter((t) => t === 'bug').length > CFG.levelPool(3).filter((t) => t === 'bug').length);
+check('第 7 关（年底冲KPI）刷更多产品需求',
+  CFG.levelPool(7).filter((t) => t === 'product').length > CFG.levelPool(6).filter((t) => t === 'product').length);
+// 摸鱼分权重：守得好 与 推得远 都能拿到有分量的分
+const holdScore = CFG.calcScore({ kills: 250, level: 10, baseHp: 100 });
+const pushScore = CFG.calcScore({ kills: 300, level: 11, baseHp: 10 });
+check(`守住满血与多推一关的分量级接近（${holdScore} vs ${pushScore}）`,
+  Math.abs(holdScore - pushScore) / Math.max(holdScore, pushScore) < 0.25);
+check('血量权重不再是"聊胜于无"（满血 100 血至少值半关）',
+  CFG.calcScore({ kills: 0, level: 1, baseHp: 100 }) - CFG.calcScore({ kills: 0, level: 1, baseHp: 0 }) >= 800 / 2);
+
 // ---------- 结果 ----------
   console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);
   process.exit(fail ? 1 : 0);

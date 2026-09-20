@@ -46,8 +46,12 @@ class Enemy {
     this.lastOrbHit = 0;
     this.chillT = 0;      // 冷处理：剩余冰缓时间
     this.chillMul = 1;    // 冰缓时的速度倍率
-    // Boss 专属
+    this.rallyUntil = 0;  // 领导"催进度"：在此之前吃加速
+    this.rallyMul = 1;
+    this.dmgTakenMul = cfg.dmgTakenMul || 1; // 抗打的怪（会议邀请 / 大老板）
+    // Boss 专属（行为参数一律从配置读，不再写死）
     this.summonTimer = 4;
+    this.rallyTimer = cfg.rallyGap || 0;
     this.enraged = false;
   }
 
@@ -55,7 +59,8 @@ class Enemy {
     const mods = battle.mods;
     if (this.chillT > 0) this.chillT -= dt;
     if (!this.attacking) {
-      const spd = this.speed * (this.chillT > 0 ? this.chillMul : 1);
+      const rallied = battle.time < this.rallyUntil ? this.rallyMul : 1;
+      const spd = this.speed * (this.chillT > 0 ? this.chillMul : 1) * rallied;
       this.y += spd * dt;
       this.x = this.baseX + Math.sin(battle.time * 1.5 + this.phase) * this.sway;
       this.x = U.clamp(this.x, 16, C.DESIGN_W - 16);
@@ -69,14 +74,23 @@ class Enemy {
       battle.lastHitBy = this.type;  // 失败复盘：记下是谁在啃
     }
 
-    // Boss：召唤需求 + 残血狂暴（通过标志位让战场结算特效与增援）
+    // Boss：召唤 / 催进度 / 残血狂暴（都用标志位交给战场结算特效与增援）
     if (this.boss && !this.dying) {
+      const cfg = this.cfg;
       this.summonTimer -= dt;
       if (this.summonTimer <= 0) {
-        this.summonTimer = this.enraged ? 4.5 : 6;
+        this.summonTimer = this.enraged ? cfg.summonGap * 0.75 : cfg.summonGap;
         this.summonNow = true;
       }
-      if (!this.enraged && this.hp < this.hpMax * 0.4) {
+      if (cfg.rallyGap) {
+        this.rallyTimer -= dt;
+        if (this.rallyTimer <= 0) {
+          this.rallyTimer = cfg.rallyGap;
+          this.rallyNow = true;
+        }
+      }
+      const enrageAt = cfg.enrageAt || 0.4;
+      if (!this.enraged && this.hp < this.hpMax * enrageAt) {
         this.enraged = true;
         this.justEnraged = true;
         this.speed *= 1.35;
@@ -87,7 +101,7 @@ class Enemy {
 
   takeDamage(dmg) {
     if (this.dying) return false;
-    this.hp -= dmg;
+    this.hp -= dmg * this.dmgTakenMul;   // 抗打的怪（会议邀请 / 大老板）
     if (this.hp <= 0) {
       this.dying = true;
       return true; // 告知战场：这一击击杀了

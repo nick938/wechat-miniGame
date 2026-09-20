@@ -84,19 +84,34 @@ class BattleScene {
     const e = d.pool.getItemByClass('enemy', Enemy);
     e.init(type, b.cfg, b.mods);
     b.enemies.push(e);
-    if (type === 'boss') {
+    if (e.boss) {
       b.bossRef = e;
-      this.addFx('text', C.DESIGN_W / 2, C.BASE_Y - 120, { text: '老板来了！', color: '#ff6b6b', size: 22 });
+      this.addFx('text', C.DESIGN_W / 2, C.BASE_Y - 120, { text: `${e.cfg.name}来了！`, color: '#ff6b6b', size: 22 });
       this.app.audio.playBoom();
       U.vibrate();
+      track('boss_spawn', { level: b.level, type });
     }
   }
 
   spawnBossMinions(boss) {
-    for (let i = 0; i < 2; i++) {
+    const n = boss.cfg.summonCount || 2;
+    for (let i = 0; i < n; i++) {
       this.spawnQueue.push('request');
     }
-    this.addFx('text', boss.x, boss.y - 50, { text: '疯狂加需求！', color: '#e8a33d', size: 13 });
+    this.addFx('text', boss.x, boss.y - 50, { text: `疯狂加需求！×${n}`, color: '#e8a33d', size: 13 });
+  }
+
+  // 直属领导"催进度"：全场敌人短时加速（用 rallyUntil 自动过期，不需要回收）
+  rallyEnemies(boss) {
+    const b = this.b;
+    const boost = boss.cfg.rallyBoost || 1.3;
+    const sec = boss.cfg.rallySec || 3;
+    for (const e of b.enemies) {
+      e.rallyMul = boost;
+      e.rallyUntil = b.time + sec;
+    }
+    this.addFx('text', C.DESIGN_W / 2, C.BASE_Y - 90, { text: '催进度！全场加速', color: '#ff6b6b', size: 15 });
+    track('boss_rally', { level: b.level, type: boss.type });
   }
 
   spawnProjectile(kind, x, y, opts) {
@@ -326,6 +341,10 @@ class BattleScene {
       if (e.summonNow) {
         e.summonNow = false;
         this.spawnBossMinions(e);
+      }
+      if (e.rallyNow) {
+        e.rallyNow = false;
+        this.rallyEnemies(e);
       }
       if (e.justEnraged) {
         e.justEnraged = false;
@@ -628,7 +647,7 @@ class BattleScene {
     ctx.fillStyle = boss.enraged ? '#ff4d4d' : '#ff6b6b';
     U.roundRectPath(ctx, 40, y, w * U.clamp(boss.hp / boss.hpMax, 0, 1), 12, 6);
     ctx.fill();
-    U.drawText(ctx, `👔 产品经理${boss.enraged ? '（狂暴）' : ''}`, C.DESIGN_W / 2, y - 4, 11, '#a33', 'center', 'bold');
+    U.drawText(ctx, `${boss.cfg.emoji} ${boss.cfg.name}${boss.enraged ? '（狂暴）' : ''}`, C.DESIGN_W / 2, y - 4, 11, '#a33', 'center', 'bold');
   }
 
   // 提示条（棋盘满了之类）：橙色横幅，最后一小段淡出

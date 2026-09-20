@@ -62,20 +62,39 @@ const WEAPON_TYPES = ['coffee', 'keyboard', 'bug', 'headphone'];
 const MAX_WEAPON_LV = 5;
 
 // ---------- 敌人 ----------
+// boss:true 的都会走"Boss 血条 + 登场特效"；行为参数都从这里读（enemy.js 不写死）
+//   summonCount/summonGap：周期性召唤几个紧急需求
+//   rallyGap/rallyBoost/rallySec：周期性给全场敌人加速（直属领导"催进度"）
+//   dmgTakenMul：受到的伤害倍率（大老板抗揍）
+//   enrageAt：残血狂暴阈值
 const ENEMIES = {
-  bug:      { id: 'bug',      name: 'Bug',      emoji: '🐛', hp: 12, speed: 32, dps: 4,  exp: 2, coin: 1, r: 14 },
-  group:    { id: 'group',    name: '群消息',   emoji: '💬', hp: 6,  speed: 46, dps: 2,  exp: 1, coin: 1, r: 10 },
-  request:  { id: 'request',  name: '紧急需求', emoji: '📋', hp: 28, speed: 26, dps: 6,  exp: 3, coin: 2, r: 16 },
-  product:  { id: 'product',  name: '产品需求', emoji: '📄', hp: 36, speed: 22, dps: 5,  exp: 3, coin: 2, r: 17, split: 3 },
-  mini:     { id: 'mini',     name: '小需求',   emoji: '🗒️', hp: 7,  speed: 44, dps: 2,  exp: 1, coin: 1, r: 11 },
-  boss:     { id: 'boss',     name: '产品经理', emoji: '👔', hp: 850, speed: 12, dps: 15, exp: 40, coin: 60, r: 30, boss: true },
+  bug:      { id: 'bug',      name: 'Bug',      emoji: '🐛', hp: 12,  speed: 32, dps: 4,  exp: 2, coin: 1, r: 14 },
+  group:    { id: 'group',    name: '群消息',   emoji: '💬', hp: 6,   speed: 46, dps: 2,  exp: 1, coin: 1, r: 10 },
+  request:  { id: 'request',  name: '紧急需求', emoji: '📋', hp: 28,  speed: 26, dps: 6,  exp: 3, coin: 2, r: 16 },
+  product:  { id: 'product',  name: '产品需求', emoji: '📄', hp: 36,  speed: 22, dps: 5,  exp: 3, coin: 2, r: 17, split: 3 },
+  mini:     { id: 'mini',     name: '小需求',   emoji: '🗒️', hp: 7,   speed: 44, dps: 2,  exp: 1, coin: 1, r: 11 },
+  // 计划书 §9.1 的坦克怪：血厚、慢、抗打，逼玩家堆穿透/爆炸
+  meeting:  { id: 'meeting',  name: '会议邀请', emoji: '📅', hp: 95,  speed: 17, dps: 10, exp: 5, coin: 4, r: 19, dmgTakenMul: 0.7 },
+  boss:     { id: 'boss',     name: '产品经理', emoji: '👔', hp: 850,  speed: 12, dps: 15, exp: 40, coin: 60,  r: 30, boss: true, summonCount: 2, summonGap: 6, enrageAt: 0.4 },
+  bossLead: { id: 'bossLead', name: '直属领导', emoji: '🧑‍💼', hp: 1050, speed: 15, dps: 18, exp: 55, coin: 85,  r: 29, boss: true, summonCount: 2, summonGap: 7, rallyGap: 9, rallyBoost: 1.35, rallySec: 3, enrageAt: 0.4 },
+  bossBig:  { id: 'bossBig',  name: '大老板',   emoji: '🕴️', hp: 1700, speed: 9,  dps: 22, exp: 80, coin: 130, r: 34, boss: true, summonCount: 4, summonGap: 12, dmgTakenMul: 0.75, enrageAt: 0.5 },
 };
+// Boss 轮换：每 BOSS_EVERY 关换一种（4 关产品经理 → 8 关直属领导 → 12 关大老板 → 循环）
+const BOSS_ROTATION = ['boss', 'bossLead', 'bossBig'];
 // 各关刷怪池（按关卡解锁种类）
 const ENEMY_POOL_BY_LEVEL = [
   { from: 1, types: ['bug', 'bug', 'group'] },
   { from: 2, types: ['request'] },
   { from: 3, types: ['product'] },
+  { from: 5, types: ['meeting'] },
 ];
+// 关卡主题加成：让关卡名与刷怪组合对得上（"Bug大爆发"就该满屏 Bug）
+const LEVEL_POOL_BONUS = {
+  4: ['bug', 'bug', 'bug'],
+  5: ['meeting'],
+  6: ['request', 'request'],
+  7: ['product', 'product'],
+};
 
 // ---------- 关卡 ----------
 const LEVEL_NAMES = ['周一早会', '临时需求', '改需求了', 'Bug大爆发', '老板巡查', '灰度发布', '年底冲KPI', '年终述职'];
@@ -87,17 +106,25 @@ const BOSS_WARN_SEC = 8;       // Boss 出场前多少秒开始预警（给玩�
 const SUPPLY_INTERVAL = 9;
 const BASE_HP = 100;           // 工位基础生命
 
+// 某一关的刷怪池（抽出来是为了可测：关卡主题是否真的生效）
+function levelPool(n) {
+  const pool = ['bug', 'bug', 'group'];
+  ENEMY_POOL_BY_LEVEL.forEach((p) => {
+    if (n >= p.from) pool.push(...p.types);
+  });
+  const bonus = LEVEL_POOL_BONUS[n];
+  if (bonus) pool.push(...bonus);          // 关卡主题：本关的"主角怪"多刷几个
+  return pool;
+}
+
 // 生成第 n 关配置（n 从 1 开始；>8 为无尽）
 function buildLevel(n) {
   const duration = Math.min(255, 150 + (n - 1) * 15);
   const hpMul = (1 + (n - 1) * 0.35) * (n > 8 ? Math.pow(1.35, n - 8) : 1);
   const spMul = 1 + Math.min(0.5, (n - 1) * 0.04);
   const isBoss = n % BOSS_EVERY === 0;
-
-  const pool = ['bug', 'bug', 'group'];
-  ENEMY_POOL_BY_LEVEL.forEach((p) => {
-    if (n >= p.from) pool.push(...p.types);
-  });
+  const pool = levelPool(n);
+  const bossType = isBoss ? BOSS_ROTATION[Math.floor(n / BOSS_EVERY - 1) % BOSS_ROTATION.length] : null;
 
   const events = [];
   let t = 3;
@@ -109,7 +136,7 @@ function buildLevel(n) {
   }
   // 中期精英波：一波产品需求（会分裂，喜剧效果）
   events.push({ t: duration * 0.55, type: 'product', count: 2, interval: 1.2 });
-  if (isBoss) events.push({ t: duration - 50, type: 'boss', count: 1, interval: 1 });
+  if (isBoss) events.push({ t: duration - 50, type: bossType, count: 1, interval: 1 });
 
   return {
     index: n,
@@ -118,6 +145,7 @@ function buildLevel(n) {
     hpMul,
     spMul,
     isBoss,
+    bossType,
     bossAt: isBoss ? duration - 50 : 0,   // Boss 出场秒数（前预警用）
     events,
   };
@@ -224,21 +252,23 @@ const expNeed = (lvl) => 5 + 4 * (lvl - 1);
 const SPEED_STEPS = [1, 2, 3]; // 战斗内倍速循环档位
 
 // ---------- 摸鱼分 ----------
-// 单局综合分数：击杀×10 + 关卡×1000 + 剩余工位血量×5（复活不扣分）
-// 排行榜/分享/联机共用这一套，改权重只动这里
+// 单局综合分数：击杀×8 + 关卡×800 + 剩余工位血量×25（复活不扣分）
+// 权重调过一轮：此前血量只值 5 分/点，100 血才 500 分 < 一关的 1000 分，
+// "守得好"几乎不值钱；现在满血守住 ≈ 多推一关的量级，两种打法都能拿分
 const calcScore = (b) => Math.max(0, Math.round(
-  (b.kills || 0) * 10 +
-  (b.level || 1) * 1000 +
-  Math.max(0, b.baseHp || 0) * 5
+  (b.kills || 0) * 8 +
+  (b.level || 1) * 800 +
+  Math.max(0, b.baseHp || 0) * 25
 ));
 
 module.exports = {
   DESIGN_W, DESIGN_H, HUD_H, BASE_Y, BOARD_CELL, BOARD_GAP, BOARD_COLS, BOARD_ROWS, BOARD_X0, BOARD_Y0,
   WEAPONS, WEAPON_TYPES, MAX_WEAPON_LV,
-  ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_NAMES, BOSS_EVERY, BOSS_WARN_SEC, SUPPLY_INTERVAL, BASE_HP,
+  ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_POOL_BONUS, BOSS_ROTATION, LEVEL_NAMES, BOSS_EVERY, BOSS_WARN_SEC, SUPPLY_INTERVAL, BASE_HP,
   RECYCLE_RECT, recycleCoins, HINT_SEC,
   lossTip,
   buildLevel,
+  levelPool,
   SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR, MASTERY_COINS,
   UPGRADES, UPGRADE_COST,
   AD_UNIT_ID, CHEST_PER_DAY, REROLL_PER_RUN,
