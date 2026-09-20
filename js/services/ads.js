@@ -43,6 +43,7 @@ class AdService {
     track('ad_show', { placement });
     const reward = () => {
       track('ad_reward', { placement });
+      if (this.onAnyReward) this.onAnyReward(placement); // 长期统计（成就）用，不影响奖励逻辑
       onReward();
     };
     const ad = this.getAd();

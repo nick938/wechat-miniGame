@@ -19,6 +19,7 @@ const { createHarness } = require('../test/harness');
 const C = require('../js/core/config');
 const { cellRect } = require('../js/ui/board');
 const Daily = require('../js/systems/daily');
+const Ach = require('../js/systems/achievements');
 
 // ---------- 参数 ----------
 const LABEL_RE = /^[a-z0-9_-]{1,32}$/i;
@@ -298,6 +299,23 @@ class Bot {
       const r = h.rects.helpNext;
       H.touch('start', r.x + r.w / 2, r.y + r.h / 2);
       this.cool = 6;
+      return;
+    }
+    // 成就/图鉴：有可领取的就点开领
+    if (this.cfg.daily) {
+      if (Ach.claimableCount(d) > 0 && h.panel === null) {
+        const r1 = h.rects.codex;
+        H.tap(r1.x + r1.w / 2, r1.y + r1.h / 2);
+        this.cool = 8;
+        return;
+      }
+    }
+    if (h.panel === 'codex') {
+      const a = h.rects.achClaims[0];
+      if (a) { H.tap(a.x + a.w / 2, a.y + a.h / 2); this.cool = 8; return; }
+      const cl2 = h.rects.codexClose;
+      H.tap(cl2.x + cl2.w / 2, cl2.y + cl2.h / 2);
+      this.cool = 8;
       return;
     }
     if (h.panel === 'daily') {
@@ -620,6 +638,7 @@ function main() {
   push(`【原型 top5】${buildList.slice(0, 5).map((x) => `${x.k}×${x.n}`).join('  ')}`);
   push(`【技能热度 top6】${pickList.slice(0, 6).map((p) => `${p.k}:${p.n}`).join('  ')}`);
   push(`【每日】(P3 新增) 打开面板 ${H.countEvents('daily_open')} 次  领任务奖励 ${H.countEvents('daily_claim')} 次  领免费宝箱 ${H.countEvents('daily_chest')} 次`);
+  push(`【成就】(P3b 新增) 打开图鉴 ${H.countEvents('codex_open')} 次  领成就奖励 ${H.countEvents('achievement_claim')} 次  看过广告累计 ${(d.meta.dex && d.meta.dex.adsWatched) || 0} 次`);
   // 被选率：机制类 vs 纯数值类（判断"三选一是不是真有取舍、机制技能够不够吸引")
   const rate = (ids) => {
     let o = 0;
@@ -702,6 +721,9 @@ function main() {
       dailyOpen: H.countEvents('daily_open'),
       dailyClaim: H.countEvents('daily_claim'),
       dailyChest: H.countEvents('daily_chest'),
+      codexOpen: H.countEvents('codex_open'),
+      achievementClaim: H.countEvents('achievement_claim'),
+      dex: d.meta.dex || null,
       runsToMaxUpgrade: M.runsToMaxUpgrade,
       runsToMaxUpgradeEstimated: Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins))),
       upgradeTotalCost: totalUpgradeCost(),

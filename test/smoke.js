@@ -17,6 +17,7 @@ const { cellRect } = require('../js/ui/board');
 const CFG = require('../js/core/config');
 const Skills = require('../js/systems/skills');
 const Daily = require('../js/systems/daily');
+const Ach = require('../js/systems/achievements');
 
 let pass = 0;
 let fail = 0;
@@ -653,6 +654,87 @@ const giveUp3 = b12.modal && b12.modal.type === 'revive' ? center(b12.modal.rect
 if (giveUp3) { tap(giveUp3.x, giveUp3.y); step(0.1); }
 check('真实结算路径把局内进度写进了每日任务', stOf('merge10').progress === 1);
 check('失败不算通关任务', stOf('clearRun').progress === 0);
+
+// ---------- 20. 成就与图鉴 ----------
+console.log('\n[20] 成就与图鉴');
+exitToHome();
+check('回到首页（本节前提）', d.scene === 'home');
+d.meta.dex = null;
+d.meta.achClaimed = [];
+d.meta.coins = 0;
+Ach.ensure(d);
+check(`成就数量在 6-10 之间（${CFG.ACHIEVEMENTS.length} 个）`,
+  CFG.ACHIEVEMENTS.length >= 6 && CFG.ACHIEVEMENTS.length <= 10);
+check('初始全部未达成、可领取数 0',
+  Ach.state(d).every((a) => !a.done && !a.claimed) && Ach.claimableCount(d) === 0);
+// 一局结算写入长期统计（合成 12 次 / 击杀 30 / 回收 2 / 最高 LV3 / 各类敌人分布）
+Ach.flush(d, {
+  win: true, kills: 30, merges: 12, recycled: 2, maxLv: 3,
+  killsByType: { bug: 20, group: 10 },
+});
+const dex = Ach.ensure(d);
+check('统计并入：局数/胜场/击杀/合成/回收/最高等级',
+  dex.runs === 1 && dex.wins === 1 && dex.kills === 30 && dex.merges === 12 &&
+  dex.recycled === 2 && dex.maxLv === 3);
+check('图鉴按敌人类型累计击杀', dex.byType.bug === 20 && dex.byType.group === 10);
+check('图鉴列表覆盖全部敌人（含 Boss）', Ach.dexList(d).length === Object.keys(CFG.ENEMIES).length &&
+  Ach.dexList(d).some((e) => e.boss === true));
+// 再打一局：累计而不是覆盖
+Ach.flush(d, { win: false, kills: 5, merges: 3, recycled: 0, maxLv: 2, killsByType: { bug: 5 } });
+check('跨局累计（击杀 30+5，合成 12+3）', dex.kills === 35 && dex.merges === 15 && dex.runs === 2 && dex.wins === 1);
+// 达成与领取
+dex.kills = 100; // 直接推到「手速上来了」的门槛
+const killsAch = Ach.state(d).find((a) => a.id === 'kills100');
+check('达到阈值后成就变为已达成', killsAch.done === true && killsAch.value === 100);
+check('未达成的成就领不到', Ach.claim(d, 'kills1000') === 0);
+const coinsBeforeAch = d.meta.coins;
+check('领取成就返回奖励', Ach.claim(d, 'kills100') === CFG.ACHIEVEMENTS.find((a) => a.id === 'kills100').coins);
+check('成就奖励到账', d.meta.coins === coinsBeforeAch + CFG.ACHIEVEMENTS.find((a) => a.id === 'kills100').coins);
+check('成就不能重复领取', Ach.claim(d, 'kills100') === 0);
+// 看广告计数（成就「广告鉴赏家」靠它）：必须走真实的激励视频流程，不能直接调回调
+const adsBefore = Ach.ensure(d).adsWatched;
+const chestBtn = app.home.rects.chest;
+tap(chestBtn.x + chestBtn.w / 2, chestBtn.y + chestBtn.h / 2);
+step(3.3); // 模拟广告 3 秒后发奖
+check('看完激励视频才计入长期统计（走真实流程）', Ach.ensure(d).adsWatched === adsBefore + 1);
+// UI：打开 📖、切图鉴、领取、关闭
+tap(79, 59); // 左上角第二个按钮 📖
+step(0.1);
+check('打开成就与图鉴面板', app.home.panel === 'codex' && app.home.codexTab === 0);
+check('面板画出了成就与累计统计', H.hasText('成就与图鉴') && H.hasText('手速上来了'));
+dex.merges = 200; // 推到「合成工人」门槛，制造一个可领取
+step(0.05);
+const achBtn = app.home.rects.achClaims[0];
+check('达成后出现成就领取按钮', !!achBtn);
+const coinsBeforeAchUi = d.meta.coins;
+if (achBtn) { tap(achBtn.x + achBtn.w / 2, achBtn.y + achBtn.h / 2); step(0.05); }
+check('点成就领取按钮到账', d.meta.coins === coinsBeforeAchUi + CFG.ACHIEVEMENTS.find((a) => a.id === 'merge200').coins);
+// 切到图鉴页
+const tabDex = app.home.rects.codexTabs[1];
+tap(tabDex.x + tabDex.w / 2, tabDex.y + tabDex.h / 2);
+step(0.05);
+check('切到图鉴页', app.home.codexTab === 1);
+check('图鉴页画出了敌人名与击杀数', H.hasText('已击退') || H.hasText('还没遇到过'));
+const codexCloseBtn = app.home.rects.codexClose;
+tap(codexCloseBtn.x + codexCloseBtn.w / 2, codexCloseBtn.y + codexCloseBtn.h / 2);
+step(0.05);
+check('关闭成就与图鉴面板', app.home.panel === null);
+// 集成：真的打一局（合成/击杀）后，长期统计里能看到
+d.meta.dex = null;
+Ach.ensure(d);
+d.meta.bestLevel = 1;
+tap(187.5, 320);
+step(0.2);
+const b13 = d.battle;
+const cell0 = cellRect(0);
+const cell5 = cellRect(5);
+H.drag({ x: cell0.x + cell0.w / 2, y: cell0.y + cell0.h / 2 }, { x: cell5.x + cell5.w / 2, y: cell5.y + cell5.h / 2 });
+step(0.05);
+d.debug.damageBase(99999);
+step(0.1);
+const giveUp4 = b13.modal && b13.modal.type === 'revive' ? center(b13.modal.rects.giveup) : null;
+if (giveUp4) { tap(giveUp4.x, giveUp4.y); step(0.1); }
+check('真实结算路径写入了长期统计', Ach.ensure(d).runs === 1 && Ach.ensure(d).merges === 1);
 
 // ---------- 结果 ----------
 console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

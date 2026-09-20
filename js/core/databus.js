@@ -83,6 +83,8 @@ class Databus {
       charLevel: 1,
       kills: 0,
       merges: 0,            // 本局合成次数（每日任务结算用）
+      maxLv: 1,             // 本局合出的最高装备等级（成就用）
+      killsByType: {},      // 本局各类敌人击杀数（图鉴用）
       revived: false,
       settled: false, // 本局金币是否已入账（防中途退出重复/遗漏结算）
       speed: C.SPEED_STEPS.indexOf(m.speed) >= 0 ? m.speed : 1, // 本局倍速（沿用上次偏好）

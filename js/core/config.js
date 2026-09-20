@@ -196,6 +196,20 @@ const DAILY_TASKS = [
 ];
 const FREE_CHEST_COINS = 120;  // 每日免费宝箱（每天 1 次，不看广告）
 
+// ---------- 成就 ----------
+// 长期目标感：每项都是一个明确的里程碑（不是日常重复劳动），达成后手动领取
+// stat 对应 meta.dex / meta.bestLevel / meta.bestScore 里的统计量
+const ACHIEVEMENTS = [
+  { id: 'kills100',  name: '手速上来了',   desc: '累计击退 100 个需求',       stat: 'kills',      need: 100,  coins: 60 },
+  { id: 'kills1000', name: '需求粉碎机',   desc: '累计击退 1000 个需求',      stat: 'kills',      need: 1000, coins: 200 },
+  { id: 'merge200',  name: '合成工人',     desc: '累计合成 200 次装备',       stat: 'merges',     need: 200,  coins: 100 },
+  { id: 'maxLv5',    name: 'LV5 达成',     desc: '合成出一件 LV5 装备',       stat: 'maxLv',      need: 5,    coins: 150 },
+  { id: 'clear8',    name: '无尽开启',     desc: '通过第 8 关，进入无尽模式', stat: 'bestLevel',  need: 9,    coins: 200 },
+  { id: 'level15',   name: '摸到第 15 关', desc: '最高打到第 15 关',          stat: 'bestLevel',  need: 15,   coins: 300 },
+  { id: 'score5000', name: '摸鱼分 5000',  desc: '单局摸鱼分达到 5000',       stat: 'bestScore',  need: 5000, coins: 150 },
+  { id: 'ad10',      name: '广告鉴赏家',   desc: '累计看完 10 次激励视频',    stat: 'adsWatched', need: 10,   coins: 150 },
+];
+
 // ---------- 广告 ----------
 const AD_UNIT_ID = ''; // 上线前在微信后台创建激励视频广告位并填到这里；留空则走模拟广告
 const CHEST_PER_DAY = 3;
@@ -228,7 +242,7 @@ module.exports = {
   SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR, MASTERY_COINS,
   UPGRADES, UPGRADE_COST,
   AD_UNIT_ID, CHEST_PER_DAY, REROLL_PER_RUN,
-  DAILY_TASKS, FREE_CHEST_COINS,
+  DAILY_TASKS, FREE_CHEST_COINS, ACHIEVEMENTS,
   expNeed,
   SPEED_STEPS,
   calcScore,

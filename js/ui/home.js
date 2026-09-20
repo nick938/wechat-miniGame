@@ -6,6 +6,7 @@ const U = require('../core/utils');
 const Share = require('../services/share');
 const LB = require('../services/leaderboard');
 const Daily = require('../systems/daily');
+const Ach = require('../systems/achievements');
 const { track } = require('../services/track');
 
 class Home {
@@ -72,6 +73,10 @@ class Home {
       share: { x: (W - 280) / 2, y: 542, w: 280, h: 48 },
       help: { x: W - 52, y: 40, w: 38, h: 38 },
       daily: { x: 14, y: 40, w: 38, h: 38 },      // 每日任务入口（左上角，带红点）
+      codex: { x: 60, y: 40, w: 38, h: 38 },      // 成就/图鉴入口（左上角第二个）
+      codexClose: { x: W / 2 + 128, y: 96, w: 34, h: 34 },
+      codexTabs: [],
+      achClaims: [],
       closePanel: { x: W / 2 + 128, y: 96, w: 34, h: 34 },
       rankClose: { x: W / 2 + 128, y: 100, w: 34, h: 34 },
       dailyClose: { x: W / 2 + 128, y: 96, w: 34, h: 34 },
@@ -103,6 +108,32 @@ class Home {
     const d = this.app.databus;
     const hit = (r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
     const R = this.rects;
+
+    if (this.panel === 'codex') {
+      const d2 = this.app.databus;
+      // 页签切换
+      for (let i = 0; i < this.rects.codexTabs.length; i++) {
+        const t = this.rects.codexTabs[i];
+        if (t && hit(t)) { this.codexTab = i; return; }
+      }
+      // 成就领取
+      for (let i = 0; i < this.rects.achClaims.length; i++) {
+        const r = this.rects.achClaims[i];
+        if (r && hit(r)) {
+          const gained = Ach.claim(d2, r.id);
+          if (gained > 0) {
+            track('achievement_claim', { id: r.id, coins: gained });
+            U.vibrate();
+            if (typeof wx !== 'undefined' && wx.showToast) {
+              wx.showToast({ title: `成就奖励 +${gained} 🪙`, icon: 'none' });
+            }
+          }
+          return;
+        }
+      }
+      if (hit(R.codexClose)) this.panel = null;
+      return;
+    }
 
     if (this.panel === 'daily') {
       const d2 = this.app.databus;
@@ -181,6 +212,10 @@ class Home {
     } else if (hit(R.daily)) {
       this.panel = 'daily';
       track('daily_open', { claimable: Daily.claimableCount(d) });
+    } else if (hit(R.codex)) {
+      this.panel = 'codex';
+      this.codexTab = 0;
+      track('codex_open', { claimable: Ach.claimableCount(d) });
     } else if (hit(R.rank)) {
       this.panel = 'rank';
       LB.requestRefresh(); // 打开时通知开放数据域刷新好友榜
@@ -292,12 +327,111 @@ class Home {
       ctx.fill();
     }
 
+    // 成就/图鉴入口（左上角第二个）
+    const xr = this.rects.codex;
+    U.drawPanel(ctx, xr.x, xr.y, xr.w, xr.h, 19, '#ffffff', '#d8cfc0');
+    U.drawText(ctx, '📖', xr.x + xr.w / 2, xr.y + xr.h / 2, 18, '#4a90d9');
+    if (Ach.claimableCount(d) > 0) {
+      ctx.fillStyle = '#ff4d4d';
+      ctx.beginPath();
+      ctx.arc(xr.x + xr.w - 4, xr.y + 5, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     U.drawText(ctx, 'v1.0 · 纯广告变现 · 无内购', W / 2, H - 24, 10, '#c5bba8');
 
     if (this.panel === 'upgrade') this.renderUpgrade(ctx);
     if (this.panel === 'help') this.renderHelp(ctx);
     if (this.panel === 'rank') this.renderRank(ctx);
     if (this.panel === 'daily') this.renderDaily(ctx);
+    if (this.panel === 'codex') this.renderCodex(ctx);
+  }
+
+  // 成就与图鉴（两个页签共用一个面板）
+  renderCodex(ctx) {
+    const d = this.app.databus;
+    const W = C.DESIGN_W;
+    const H = C.DESIGN_H;
+    ctx.fillStyle = 'rgba(30,30,40,0.6)';
+    ctx.fillRect(0, 0, W, H);
+
+    const px = (W - 330) / 2;
+    const py = 88;
+    U.drawPanel(ctx, px, py, 330, 470, 16, '#ffffff');
+    U.drawText(ctx, '📖 成就与图鉴', W / 2, py + 30, 18, '#333333', 'center', 'bold');
+
+    // 页签
+    const tabNames = ['成就', '图鉴'];
+    this.rects.codexTabs = tabNames.map((name, i) => {
+      const r = { x: px + 20 + i * 90, y: py + 48, w: 84, h: 30 };
+      const on = this.codexTab === i;
+      U.drawPanel(ctx, r.x, r.y, r.w, r.h, 15, on ? '#4a90d9' : '#f0ebe1');
+      U.drawText(ctx, name, r.x + r.w / 2, r.y + 15, 13, on ? '#ffffff' : '#888888', 'center', 'bold');
+      return r;
+    });
+    const claimable = Ach.claimableCount(d);
+    if (claimable > 0) {
+      U.drawText(ctx, `${claimable} 项可领取`, px + 250, py + 63, 11, '#ff4d4d', 'left', 'bold');
+    }
+
+    if (this.codexTab === 1) this.renderCodexDex(ctx, d, px, py);
+    else this.renderCodexAch(ctx, d, px, py);
+
+    const cl = this.rects.codexClose;
+    U.drawPanel(ctx, cl.x, cl.y, cl.w, cl.h, 17, '#f0ebe1');
+    U.drawText(ctx, '✕', cl.x + cl.w / 2, cl.y + cl.h / 2, 15, '#999999');
+  }
+
+  // 成就页：8 项，带进度与领取
+  renderCodexAch(ctx, d, px, py) {
+    const W = C.DESIGN_W;
+    this.rects.achClaims = [];
+    Ach.state(d).forEach((a, i) => {
+      const y = py + 88 + i * 46;
+      U.drawPanel(ctx, px + 14, y, 302, 40, 10, a.claimed ? '#f0f0f0' : '#f7f4ec');
+      U.drawText(ctx, a.name, px + 26, y + 14, 12, a.claimed ? '#a89f92' : '#333333', 'left', 'bold');
+      U.drawText(ctx, `${a.desc} · ${a.value}/${a.need}`, px + 26, y + 30, 10, '#999999', 'left');
+      const bw = 60;
+      const ratio = U.clamp(a.value / a.need, 0, 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.08)';
+      U.roundRectPath(ctx, px + 232, y + 26, bw, 6, 3);
+      ctx.fill();
+      ctx.fillStyle = ratio >= 1 ? '#3aa76d' : '#4a90d9';
+      U.roundRectPath(ctx, px + 232, y + 26, bw * ratio, 6, 3);
+      ctx.fill();
+      const br = { x: px + 216, y: y + 4, w: 88, h: 32, id: a.id };
+      if (a.claimed) {
+        U.drawPanel(ctx, br.x, br.y, br.w, br.h, 16, '#ddd5c6');
+        U.drawText(ctx, '已领取', br.x + br.w / 2, br.y + 16, 11, '#999999', 'center', 'bold');
+      } else if (a.done) {
+        U.drawPanel(ctx, br.x, br.y, br.w, br.h, 16, '#3aa76d');
+        U.drawText(ctx, `领取 +${a.coins}`, br.x + br.w / 2, br.y + 16, 11, '#ffffff', 'center', 'bold');
+        this.rects.achClaims.push(br);
+      } else {
+        U.drawPanel(ctx, br.x, br.y, br.w, br.h, 16, '#e9e3d8');
+        U.drawText(ctx, '未达成', br.x + br.w / 2, br.y + 16, 11, '#a89f92', 'center', 'bold');
+      }
+    });
+  }
+
+  // 图鉴页：每种敌人被击退多少只 + 长期统计
+  renderCodexDex(ctx, d, px, py) {
+    const W = C.DESIGN_W;
+    Ach.dexList(d).forEach((e, i) => {
+      const y = py + 92 + i * 40;
+      U.drawPanel(ctx, px + 14, y, 302, 34, 10, e.kills > 0 ? '#f7f4ec' : '#f4f4f4');
+      U.drawEmoji(ctx, e.emoji, px + 36, y + 17, 20);
+      U.drawText(ctx, e.name + (e.boss ? '（Boss）' : ''), px + 56, y + 17, 12,
+        e.kills > 0 ? '#333333' : '#a89f92', 'left', 'bold');
+      U.drawText(ctx, e.kills > 0 ? `已击退 ${e.kills} 只` : '还没遇到过', px + 302 - 12, y + 17, 11,
+        e.kills > 0 ? '#3aa76d' : '#a89f92', 'right');
+    });
+    const dex = Ach.ensure(d);
+    const y0 = py + 92 + 6 * 40 + 6;
+    U.drawText(ctx, `累计：打了 ${dex.runs} 局（胜 ${dex.wins}）｜合成 ${dex.merges} 次｜回收 ${dex.recycled} 件｜看过广告 ${dex.adsWatched} 次`,
+      W / 2, y0, 10, '#888888');
+    U.drawText(ctx, `最高装备等级 LV${dex.maxLv || 1}｜最高摸鱼分 ${d.meta.bestScore}｜最高第 ${d.meta.bestLevel} 关`,
+      W / 2, y0 + 18, 10, '#888888');
   }
 
   // 每日任务面板：3 个任务（进度条 + 领取） + 每日免费宝箱

@@ -6,6 +6,7 @@ const C = require('../core/config');
 const U = require('../core/utils');
 const LB = require('../services/leaderboard');
 const Daily = require('../systems/daily');
+const Ach = require('../systems/achievements');
 
 const BTN_W = 240;
 const BTN_H = 48;
@@ -36,6 +37,11 @@ class Result {
 
     // 每日任务进度（一局一结算，只写一次存储）
     Daily.flush(d, { win, kills: b.kills, merges: b.merges });
+    // 长期统计（成就 + 图鉴）同样一局只写一次
+    Ach.flush(d, {
+      win, kills: b.kills, merges: b.merges, recycled: b.recycled,
+      maxLv: b.maxLv, killsByType: b.killsByType,
+    });
 
     b.modal = {
       type: 'result',
