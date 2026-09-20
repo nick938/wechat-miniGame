@@ -33,7 +33,7 @@ class Result {
     d.saveMeta();
 
     // 好友排行榜上报（开放数据域）
-    LB.submitScore(score);
+    LB.submitScore(d.meta, score);
 
     // 每日任务进度（一局一结算，只写一次存储）
     Daily.flush(d, { win, kills: b.kills, merges: b.merges });

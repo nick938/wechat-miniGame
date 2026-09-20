@@ -871,9 +871,10 @@ check('没分时不乱给追赶目标', Rank.nextTarget(friends, 0).nickname ===
 // 主域把"我的最高分"传给了开放数据域（否则画不出名次与追赶目标）
 let posted = null;
 wx.getOpenDataContext = () => ({ postMessage: (m) => { posted = m; }, canvas: null });
-LB.requestRefresh(4321);
-check('打开好友榜时把最高分传给了开放数据域',
-  !!posted && posted.type === 'refresh' && posted.myScore === 4321);
+LB.requestRefresh({ bestScore: 4321, weekBest: { week: Rank.weekKey(new Date()), score: 999 } }, 'total');
+check('打开好友榜时把最高分与本周分传给了开放数据域',
+  !!posted && posted.type === 'refresh' && posted.mode === 'total' &&
+  posted.myScore === 4321 && posted.myWeekScore === 999 && typeof posted.week === 'string');
 
 // ---------- 23. 内容厚度：Boss 轮换 / 会议邀请 / 催进度 / 关卡主题 / 摸鱼分权重 ----------
 console.log('\n[23] 内容厚度');
@@ -1168,6 +1169,61 @@ const closeUp = center(app.home.rects.closePanel);
 touch('start', closeUp.x, closeUp.y);
 step(0.05);
 check('关闭升级面板', app.home.panel === null);
+
+// ---------- 27. 好友榜周榜（本周摸鱼分） ----------
+console.log('\n[27] 周榜');
+exitToHome();
+check('回到首页（本节前提）', d.scene === 'home');
+// 周 key：同一周内稳定、跨周变化、周一为界
+const monday = new Date(2026, 8, 21, 10, 0, 0);   // 2026-09-21 周一
+const sunday = new Date(2026, 8, 27, 23, 0, 0);   // 同周周日
+const nextMonday = new Date(2026, 8, 28, 0, 30, 0);
+const wk1 = Rank.weekKey(monday);
+check('同一周内周 key 相同', wk1 === Rank.weekKey(sunday) && /^\d{4}-W\d{2}$/.test(wk1));
+check('跨周后周 key 变化（周一起算）', Rank.weekKey(nextMonday) !== wk1);
+check('周日的 key 仍属于上一周（不是新一周）', Rank.weekKey(sunday) === wk1);
+// 周最佳：只增不减，跨周重置
+const meta27 = { bestScore: 0 };
+check('第一次上报建立本周最佳', LB.weeklyBest(meta27, 1000) === 1000);
+check('分数更低时不会覆盖本周最佳', LB.weeklyBest(meta27, 300) === 1000);
+check('分数更高时刷新本周最佳', LB.weeklyBest(meta27, 1500) === 1500);
+meta27.weekBest.week = '2000-W01'; // 假装跨周
+check('跨周后本周最佳重置', LB.weeklyBest(meta27, 200) === 200);
+// 上报内容：三个 key（总分 / 本周分 / 周标记）
+let kvPayload = null;
+wx.setUserCloudStorage = (o) => { kvPayload = o; };
+d.meta.weekBest = null;
+LB.submitScore(d.meta, 2500);
+const kvOf = (k) => (kvPayload.KVDataList.find((x) => x.key === k) || {}).value;
+check('上报了总分 key', kvOf('score') === '2500');
+check('上报了本周分 key', kvOf('weekScore') === '2500');
+check('上报了周标记（周榜据此过滤旧数据）', kvOf('week') === Rank.weekKey(new Date()));
+// 周榜只统计"本周上报过"的好友
+const weekNow = Rank.weekKey(new Date());
+const friends27 = [
+  { nickname: '老王', score: 9000, weekScore: 3000, week: weekNow },
+  { nickname: '小李', score: 8000, weekScore: 5000, week: weekNow },
+  { nickname: '上周冠军', score: 20000, weekScore: 9000, week: '2000-W01' },
+  { nickname: '没上报', score: 7000, weekScore: 0, week: weekNow },
+];
+const wl = Rank.weekList(friends27, weekNow);
+check('周榜按本周分排序且只含本周', wl.length === 2 && wl[0].nickname === '小李' && wl[1].nickname === '老王');
+check('周榜把跨周旧数据排除在外', wl.every((u) => u.nickname !== '上周冠军'));
+// 首页榜单面板：两个页签（总榜 / 本周），切到本周会带 mode 重新请求
+tap(187.5, 508); // 🏆 好友摸鱼榜
+step(0.05);
+check('打开好友榜面板', app.home.panel === 'rank' && app.home.rankMode === 'total');
+check('面板画出总榜/本周两个页签', H.hasText('总榜') && H.hasText('本周'));
+posted = null;
+const weekTab = app.home.rects.rankTabs[1];
+touch('start', weekTab.x + weekTab.w / 2, weekTab.y + weekTab.h / 2);
+step(0.05);
+check('切到本周会带 mode=week 重新请求开放数据域',
+  app.home.rankMode === 'week' && !!posted && posted.mode === 'week');
+const rankCloseBtn = app.home.rects.rankClose;
+touch('start', rankCloseBtn.x + rankCloseBtn.w / 2, rankCloseBtn.y + rankCloseBtn.h / 2);
+step(0.05);
+check('关闭好友榜面板', app.home.panel === null);
 
 // ---------- 结果 ----------
   console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

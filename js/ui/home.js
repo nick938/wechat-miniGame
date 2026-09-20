@@ -13,7 +13,8 @@ class Home {
   constructor(app) {
     this.app = app;
     this.time = 0;
-    this.panel = null; // null | 'upgrade' | 'help'
+    this.panel = null; // null | 'upgrade' | 'help' | 'rank' | 'daily' | 'codex'
+    this.rankMode = 'total'; // 好友榜：total 总榜 / week 本周榜
     this.layout();
     this.initHelp();
     // 首次进入自动弹出玩法说明
@@ -199,6 +200,18 @@ class Home {
     }
 
     if (this.panel === 'rank') {
+      for (let i = 0; i < this.rects.rankTabs.length; i++) {
+        const t = this.rects.rankTabs[i];
+        if (t && hit(t)) {
+          const mode = i === 1 ? 'week' : 'total';
+          if (mode !== this.rankMode) {
+            this.rankMode = mode;
+            LB.requestRefresh(d.meta, mode); // 换榜要重新问开放数据域要数据
+            track('rank_tab', { mode });
+          }
+          return;
+        }
+      }
       if (x >= this.rects.rankClose.x && x <= this.rects.rankClose.x + 34 &&
         y >= this.rects.rankClose.y && y <= this.rects.rankClose.y + 34) {
         this.panel = null;
@@ -218,7 +231,8 @@ class Home {
       track('codex_open', { claimable: Ach.claimableCount(d) });
     } else if (hit(R.rank)) {
       this.panel = 'rank';
-      LB.requestRefresh(d.meta.bestScore); // 打开时通知开放数据域刷新好友榜（带上我的最高分）
+      this.rankMode = 'total';
+      LB.requestRefresh(d.meta, this.rankMode); // 打开时通知开放数据域刷新（带上我的最高分/本周分）
     } else if (hit(R.start)) {
       U.vibrate();
       this.app.startBattle(d.meta.bestLevel);
@@ -517,20 +531,33 @@ class Home {
     ctx.fillRect(0, 0, W, H);
 
     const px = (W - 330) / 2;
-    const py = 88;
-    U.drawPanel(ctx, px, py, 330, 470, 16, '#ffffff');
-    U.drawText(ctx, '🏆 好友摸鱼榜', W / 2, py + 34, 19, '#333333', 'center', 'bold');
+    const py = 72;
+    U.drawPanel(ctx, px, py, 330, 500, 16, '#ffffff');
+    U.drawText(ctx, '🏆 好友摸鱼榜', W / 2, py + 26, 18, '#333333', 'center', 'bold');
+
+    // 两个页签：总榜 / 本周（本周榜每周一重置，避免高分一旦打出就没人追得上）
+    const tabs = [['总榜', 'total'], ['本周', 'week']];
+    this.rects.rankTabs = tabs.map(([name, m], i) => {
+      const r = { x: px + 46 + i * 122, y: py + 44, w: 116, h: 28 };
+      const on = this.rankMode === m;
+      U.drawPanel(ctx, r.x, r.y, r.w, r.h, 14, on ? '#ff8c00' : '#f0ebe1');
+      U.drawText(ctx, name, r.x + r.w / 2, r.y + 14, 13, on ? '#ffffff' : '#888888', 'center', 'bold');
+      return r;
+    });
 
     const shared = LB.available() ? LB.getSharedCanvas() : null;
     if (shared) {
-      ctx.drawImage(shared, px + 5, py + 56, 320, 400);
+      ctx.drawImage(shared, px + 5, py + 80, 320, 400);
     } else {
       // 开发者工具模拟器 / 环境不支持：展示本地数据兜底
       U.drawEmoji(ctx, '📱', W / 2, py + 140, 40);
-      U.drawText(ctx, `我的最高摸鱼分  ${d.meta.bestScore}`, W / 2, py + 200, 15, '#e8a33d', 'center', 'bold');
-      U.drawText(ctx, `最高关卡 第 ${d.meta.bestLevel} 关`, W / 2, py + 232, 13, '#666666');
-      U.drawText(ctx, '好友排名需要在手机微信里打开才能看到，', W / 2, py + 290, 12, '#999999');
-      U.drawText(ctx, '分享给工友，比比谁更会摸鱼！', W / 2, py + 312, 12, '#999999');
+      const wk = require('../../openDataContext/rank.js').weekKey(new Date());
+      const myWeek = (d.meta.weekBest && d.meta.weekBest.week === wk) ? d.meta.weekBest.score : 0;
+      U.drawText(ctx, `我的最高摸鱼分  ${d.meta.bestScore}`, W / 2, py + 190, 15, '#e8a33d', 'center', 'bold');
+      U.drawText(ctx, `我的本周摸鱼分  ${myWeek}`, W / 2, py + 218, 13, '#ff8c00', 'center', 'bold');
+      U.drawText(ctx, `最高关卡 第 ${d.meta.bestLevel} 关`, W / 2, py + 246, 13, '#666666');
+      U.drawText(ctx, '好友排名需要在手机微信里打开才能看到，', W / 2, py + 300, 12, '#999999');
+      U.drawText(ctx, '分享给工友，比比谁更会摸鱼！', W / 2, py + 322, 12, '#999999');
     }
 
     const cr = this.rects.rankClose;

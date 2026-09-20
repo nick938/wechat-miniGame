@@ -26,4 +26,26 @@ function nextTarget(list, myScore) {
   return { nickname: best.nickname, score: best.score, gap: best.score - s + 1 };
 }
 
-module.exports = { myRank, nextTarget };
+// 周 key：按"周一起算"的自然周，形如 2026-W38（主域与开放数据域必须算出一致的值）
+function weekKey(date) {
+  const d = date ? new Date(date.getTime()) : new Date();
+  d.setHours(0, 0, 0, 0);
+  // 周一为一周起点：getDay() 周日=0 → 转成 1..7
+  const day = d.getDay() === 0 ? 7 : d.getDay();
+  d.setDate(d.getDate() - (day - 1));      // 回到本周一
+  const year = d.getFullYear();
+  const jan1 = new Date(year, 0, 1);
+  const days = Math.floor((d - jan1) / 86400000);
+  const week = Math.floor(days / 7) + 1;
+  return `${year}-W${week < 10 ? '0' : ''}${week}`;
+}
+
+// 周榜：只统计"本周上报过"的好友（跨周后旧数据不再参与排名，避免上周的分一直挂榜）
+function weekList(all, currentWeek) {
+  return all
+    .filter((u) => u.week === currentWeek && u.weekScore > 0)
+    .map((u) => ({ nickname: u.nickname, avatar: u.avatar, score: u.weekScore }))
+    .sort((a, b) => b.score - a.score);
+}
+
+module.exports = { myRank, nextTarget, weekKey, weekList };
