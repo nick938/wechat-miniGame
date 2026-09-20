@@ -62,6 +62,7 @@ class Enemy {
       // 啃工位（走统一结算：减伤词缀 → 护盾吸收 → 血条）
       this.attackAnim += dt;
       damageBaseHp(battle, this.dps * dt * mods.enemyDpsMul);
+      battle.lastHitBy = this.type;  // 失败复盘：记下是谁在啃
     }
 
     // Boss：召唤需求 + 残血狂暴（通过标志位让战场结算特效与增援）

@@ -29,7 +29,8 @@ function cellAt(x, y) {
 class Board {
   constructor(battle) {
     this.battle = battle;
-    this.onMerge = null; // 合成成功回调（音效/震动）
+    this.onMerge = null;    // 合成成功回调（音效/震动）
+    this.onRecycle = null;  // 回收成功回调（音效/飘字）
   }
 
   // ---------- 触摸 ----------
@@ -56,10 +57,21 @@ class Board {
     b.board.dragging = null;
 
     const from = d.index;
+    const item = b.board.cells[from];
+    if (!item) return;
+
+    // 丢到工位桌面上的回收条 → 换金币（有舍才有得）
+    const R = C.RECYCLE_RECT;
+    if (x >= R.x && x <= R.x + R.w && y >= R.y && y <= R.y + R.h) {
+      b.board.cells[from] = null;
+      b.recycled++;
+      if (this.onRecycle) this.onRecycle(from, item);
+      return;
+    }
+
     const to = cellAt(x, y);
     if (to < 0 || to === from) return; // 丢出界/原格：放回
 
-    const item = b.board.cells[from];
     const target = b.board.cells[to];
 
     if (target && target.type === item.type && target.lv === item.lv && item.lv < C.MAX_WEAPON_LV) {
@@ -88,6 +100,7 @@ class Board {
 
   // ---------- 渲染 ----------
   render(ctx) {
+    this.renderRecycleBar(ctx);
     this.renderAttackPreview(ctx);
     const b = this.battle;
     const cells = b.board.cells;
@@ -131,6 +144,28 @@ class Board {
         U.drawEmoji(ctx, C.WEAPONS[item.type].emoji, d.x, d.y - 30, 40);
       }
     }
+  }
+
+  // 拖拽时在工位桌面上浮出的回收条：松手即回收换金币（常驻 ♻️ 图标做可发现性）
+  renderRecycleBar(ctx) {
+    const b = this.battle;
+    const R = C.RECYCLE_RECT;
+    const d = b.board.dragging;
+    const item = d ? b.board.cells[d.index] : null;
+
+    if (!d || !item) {
+      // 未拖拽：只在桌面左侧画一个常驻小图标，告诉玩家这里能丢
+      U.drawEmoji(ctx, '♻️', R.x + 16, R.y + R.h / 2 - 2, 18, 0.75);
+      return;
+    }
+
+    const over = d.x >= R.x && d.x <= R.x + R.w && d.y >= R.y && d.y <= R.y + R.h;
+    const coins = C.recycleCoins(item.lv);
+    U.drawPanel(ctx, R.x, R.y, R.w, R.h, 8,
+      over ? 'rgba(232,163,61,0.95)' : 'rgba(255,255,255,0.82)',
+      over ? '#ffffff' : '#e8a33d');
+    U.drawText(ctx, `♻️ 松手回收 ${C.WEAPONS[item.type].name} LV${item.lv} · +${coins} 🪙`,
+      R.x + R.w / 2, R.y + R.h / 2, 12, over ? '#ffffff' : '#b8860b', 'center', 'bold');
   }
 
   // 拖拽装备时，红色半透明显示它的攻击方向/范围

@@ -50,9 +50,9 @@ const TIERS = {
   // 反应间隔以帧计（1 帧 = 16.7ms）；新手机器人慢半拍，熟练机器人手快
   // mergeChance：看到可合成的一对时会不会马上去合——新手只有不到一半概率注意得到，
   // 这样才会真实出现「棋盘被塞满」「满盘且无可合成对」的场景，否则死局指标永远是 0
-  novice: { react: 30, speed: 1, sortByLevel: false, reroll: false, revive: true, double: false, chest: false, synergy: false, mergeChance: 0.45 },
-  normal: { react: 14, speed: 2, sortByLevel: true, reroll: true, revive: true, double: true, chest: true, synergy: false, mergeChance: 0.85 },
-  expert: { react: 8, speed: 3, sortByLevel: true, reroll: true, revive: true, double: true, chest: true, synergy: true, mergeChance: 1 },
+  novice: { react: 30, speed: 1, sortByLevel: false, reroll: false, revive: true, double: false, chest: false, synergy: false, mergeChance: 0.45, recycle: false, recycleAt: 0 },
+  normal: { react: 14, speed: 2, sortByLevel: true, reroll: true, revive: true, double: true, chest: true, synergy: false, mergeChance: 0.85, recycle: true, recycleAt: 10 },
+  expert: { react: 8, speed: 3, sortByLevel: true, reroll: true, revive: true, double: true, chest: true, synergy: true, mergeChance: 1, recycle: true, recycleAt: 10 },
 };
 
 // ---------- 工具 ----------
@@ -295,6 +295,21 @@ class Bot {
     this.cool = 8;
   }
 
+  // 挑一件最该丢的：优先"没有同类同级伙伴的孤品"（等级最低的先丢）；
+  // 还能合且棋盘不挤时不动手——回收是主动选择，不是被逼的（休闲游戏不该有高 APM 压力）
+  pickRecycleTarget(cells, hasMerge) {
+    if (hasMerge && botRandom() < 0.5) return -1;   // 用机器人自带 LCG，保证可复现
+    let best = -1;
+    let bestLv = 99;
+    cells.forEach((c, i) => {
+      if (!c) return;
+      const partner = cells.some((o, j) => o && j !== i && o.type === c.type && o.lv === c.lv && c.lv < C.MAX_WEAPON_LV);
+      if (partner) return;
+      if (c.lv < bestLv) { bestLv = c.lv; best = i; }
+    });
+    return best;
+  }
+
   actBattle() {
     const b = d.battle;
     const m = b.modal;
@@ -390,9 +405,25 @@ class Bot {
         }
       }
     }
+    // 回收：新手不知道有这个机制（模型化成永远不用），普通/熟练在棋盘挤的时候会丢孤品
+    if (this.cfg.recycle) {
+      const occupied = cells.filter(Boolean).length;
+      if (occupied >= this.cfg.recycleAt) {
+        const target = this.pickRecycleTarget(cells, moves.length > 0, occupied);
+        if (target >= 0) {
+          const r = cellRect(target);
+          H.drag(
+            { x: r.x + r.w / 2, y: r.y + r.h / 2 },
+            { x: C.RECYCLE_RECT.x + C.RECYCLE_RECT.w / 2, y: C.RECYCLE_RECT.y + C.RECYCLE_RECT.h / 2 }
+          );
+          this.cool = this.cfg.react;
+          return;
+        }
+      }
+    }
     if (!moves.length) {
       this.cool = 6;
-      return;                                       // 满盘且无对可合时只能等（P1 会加回收）
+      return;                                       // 满盘且无对可合时只能等（除非回收腾位）
     }
     if (this.cfg.mergeChance < 1 && botRandom() > this.cfg.mergeChance) {
       this.cool = this.cfg.react * 4;                // 没注意到：拖一会儿再看
@@ -523,6 +554,7 @@ function main() {
   push(`【节奏·秒】首杀 ${median(M.firstKill)}  首合成 ${median(M.firstMerge)}  首三选一 ${median(M.firstLevelup)}  单局时长 ${median(M.runDuration)}`);
   push(`【行为·每局】合成 ${median(M.merges)}  三选一 ${median(M.levelups)}  补给投放 ${median(M.supplyDropped)}  补给丢弃 ${median(M.supplyLost)}  机器人漏看可合成 ${M.mergeSkipped} 次/动手 ${M.mergeDone} 次`);
   push(`【挫败】满盘帧占比 ${pct(M.fullFrames, M.battleFrames)}%  真死局帧占比 ${pct(M.deadlockFrames, M.battleFrames)}%  死局次数 ${M.deadlockEvents}  最长死局 ${(M.deadlockMaxStreak / 60).toFixed(1)}s`);
+  push(`【回收】(P1 新增) 回收件数 ${H.countEvents('weapon_recycle')}  棋盘满事件 ${H.countEvents('board_full')}  空投丢弃/场 ${median(M.supplyLost)}`);
   push(`【经济】每局金币中位 ${median(M.coins)}  三线满级所需局数 ${M.runsToMaxUpgrade.length ? M.runsToMaxUpgrade.join('/') : '未达成'}（按每局金币估算 ${Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))} 局，升级总价 ${totalUpgradeCost()}）`);
   push(`【广告·潜机会/单场】${JSON.stringify(M.adOpportunities)} 合计 ${(adOpp / sess).toFixed(2)}/局，${(adOpp / Math.max(1, M.runs)).toFixed(2)}/单场`);
   push(`【广告·实际看/单场】${JSON.stringify(M.adShows)} 合计 ${(adShowTotal / sess).toFixed(2)}/局，${(adShowTotal / Math.max(1, M.runs)).toFixed(2)}/单场`);
@@ -577,6 +609,9 @@ function main() {
       medianSupplyDropped: median(M.supplyDropped),
       medianSupplyLost: median(M.supplyLost),
       medianCoins: median(M.coins),
+      medianSupplyLost: median(M.supplyLost),
+      recycledTotal: H.countEvents('weapon_recycle'),
+      boardFullEvents: H.countEvents('board_full'),
       runsToMaxUpgrade: M.runsToMaxUpgrade,
       runsToMaxUpgradeEstimated: Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins))),
       upgradeTotalCost: totalUpgradeCost(),

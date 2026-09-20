@@ -14,7 +14,7 @@ const CTX_METHODS = [
   'drawImage', 'fillText', 'strokeText', 'putImageData', 'isPointInPath',
 ];
 
-function makeFastCtx() {
+function makeFastCtx(rec) {
   const ctx = {
     measureText: () => ({ width: 10 }),
     createLinearGradient: () => ({ addColorStop() {} }),
@@ -22,12 +22,14 @@ function makeFastCtx() {
     createPattern: () => null,
     getImageData: () => ({ data: [] }),
   };
-  CTX_METHODS.forEach((m) => { ctx[m] = () => 0; });
+  CTX_METHODS.forEach((m) => {
+    ctx[m] = (rec && (m === 'fillText' || m === 'strokeText')) ? (t) => rec(String(t)) : () => 0;
+  });
   return ctx;
 }
 
 // Proxy 版：未知方法也安全（冒烟测试用；新增 ctx 方法不会让测试直接炸）
-function makeSlowCtx() {
+function makeSlowCtx(rec) {
   const t = {};
   return new Proxy(t, {
     get(target, key) {
@@ -36,6 +38,7 @@ function makeSlowCtx() {
       if (key === 'createLinearGradient' || key === 'createRadialGradient') {
         return () => ({ addColorStop() {} });
       }
+      if (rec && (key === 'fillText' || key === 'strokeText')) return (s) => rec(String(s));
       return () => 0; // 其余方法一律 no-op
     },
     set(target, key, value) {
@@ -57,13 +60,24 @@ function createHarness(opts) {
   let now = 0;
   let seed = o.seed === undefined ? 42 : o.seed;
 
+  // 绘制文本环形缓冲（recordText 开启时）：让测试能验证"界面上真的画了这句话"
+  const TEXT_CAP = 2000;
+  const textBuf = new Array(TEXT_CAP);
+  let textIdx = 0;
+  let textCount = 0;
+  function rec(s) {
+    textBuf[textIdx] = s;
+    textIdx = (textIdx + 1) % TEXT_CAP;
+    if (textCount < TEXT_CAP) textCount++;
+  }
+
   // 固定随机种子的 LCG：测试与模拟器都可复现
   function rng() {
     seed = (seed * 1103515245 + 12345) % 2147483648;
     return seed / 2147483648;
   }
 
-  const ctx = o.fast ? makeFastCtx() : makeSlowCtx();
+  const ctx = o.fast ? makeFastCtx(o.recordText ? rec : null) : makeSlowCtx(o.recordText ? rec : null);
   const fakeCanvas = {
     width: 0,
     height: 0,
@@ -159,6 +173,24 @@ function createHarness(opts) {
 
     clearEvents() {
       events.length = 0;
+    },
+
+    // 最近绘制过的文本（recordText: true 时可用）
+    texts() {
+      const out = [];
+      for (let k = 0; k < textCount; k++) out.push(textBuf[(textIdx - textCount + k + TEXT_CAP) % TEXT_CAP]);
+      return out;
+    },
+
+    hasText(sub) {
+      const all = H.texts();
+      for (const s of all) if (s.indexOf(sub) >= 0) return true;
+      return false;
+    },
+
+    clearTexts() {
+      textIdx = 0;
+      textCount = 0;
     },
   };
 

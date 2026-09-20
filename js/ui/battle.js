@@ -51,6 +51,17 @@ class BattleScene {
         d.saveMeta();
       }
     };
+    // 拖到桌面回收条：装备换金币（有舍才有得，也是棋盘堵住时的手动出路）
+    this.board.onRecycle = (idx, item) => {
+      const coins = C.recycleCoins(item.lv);
+      this.b.coins += coins;
+      U.vibrate();
+      this.app.audio.playHit();
+      this.addFx('text', WeaponSys.cellCenterX(idx), WeaponSys.cellCenterY(idx) - 20, {
+        text: `♻️ +${coins} 🪙`, color: '#e8a33d', size: 16,
+      });
+      track('weapon_recycle', { lv: item.lv, coins });
+    };
     WeaponSys.reset();
     this.app.audio.playBgm();
     d.scene = 'battle';
@@ -151,6 +162,12 @@ class BattleScene {
     this.b.fxs.push(fx);
   }
 
+  // 一句话提示条（棋盘满了之类），到点自动消失
+  showHint(text) {
+    const b = this.b;
+    if (b) b.hint = { text, t: C.HINT_SEC };
+  }
+
   checkPendingLevels() {
     const b = this.b;
     if (!b.modal && b.pendingLevels > 0) {
@@ -183,6 +200,10 @@ class BattleScene {
     b.time += dt;
     b.timeLeft = Math.max(0, b.timeLeft - dt);
     if (this.tutorial) this.tutorial.t += dt;
+    if (b.hint) {
+      b.hint.t -= dt;
+      if (b.hint.t <= 0) b.hint = null;
+    }
 
     const inMergeLesson = this.tutorial && this.tutorial.step === 'merge';
     if (!inMergeLesson) {
@@ -201,6 +222,10 @@ class BattleScene {
         if (pos) {
           this.addFx('ring', pos.x, pos.y, { r1: 34, color: '#69cd8c' });
           this.addFx('text', pos.x, pos.y - 20, { text: '新装备！', color: '#3aa76d', size: 12 });
+        } else {
+          // 棋盘满了：别静默丢弃，明确告诉玩家怎么腾位置
+          this.showHint('棋盘满了！拖一件到桌面 ♻️ 换金币腾位置');
+          track('board_full', { level: b.level });
         }
       }
     }
@@ -441,6 +466,7 @@ class BattleScene {
     this.renderHud(ctx);
     if (b.bossRef) this.renderBossBar(ctx);
     this.renderTutorial(ctx);
+    this.renderHint(ctx);
 
     if (b.modal) {
       if (b.modal.type === 'levelup') LevelUp.render(ctx, b);
@@ -555,6 +581,18 @@ class BattleScene {
     U.roundRectPath(ctx, 40, y, w * U.clamp(boss.hp / boss.hpMax, 0, 1), 12, 6);
     ctx.fill();
     U.drawText(ctx, `👔 产品经理${boss.enraged ? '（狂暴）' : ''}`, C.DESIGN_W / 2, y - 4, 11, '#a33', 'center', 'bold');
+  }
+
+  // 提示条（棋盘满了之类）：橙色横幅，最后一小段淡出
+  renderHint(ctx) {
+    const h = this.b.hint;
+    if (!h) return;
+    const W = C.DESIGN_W;
+    const y = C.HUD_H + 40;
+    ctx.globalAlpha = 0.93 * Math.min(1, h.t / 0.5);
+    U.drawPanel(ctx, W / 2 - 154, y, 308, 36, 18, 'rgba(232,163,61,0.95)');
+    U.drawText(ctx, h.text, W / 2, y + 18, 13, '#ffffff', 'center', 'bold');
+    ctx.globalAlpha = 1;
   }
 
   renderTutorial(ctx) {

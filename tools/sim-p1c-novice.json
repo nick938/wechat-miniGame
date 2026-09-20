@@ -1,0 +1,110 @@
+{
+  "meta": {
+    "tier": "novice",
+    "players": 30,
+    "sessions": 3,
+    "seed": 1,
+    "elapsedSec": 101.1,
+    "frames": 4429823
+  },
+  "summary": {
+    "sessions": 90,
+    "runs": 408,
+    "wins": 318,
+    "loses": 90,
+    "passByLevel": {
+      "1": {
+        "win": 30,
+        "lose": 0
+      },
+      "2": {
+        "win": 30,
+        "lose": 0
+      },
+      "3": {
+        "win": 30,
+        "lose": 0
+      },
+      "4": {
+        "win": 30,
+        "lose": 0
+      },
+      "5": {
+        "win": 30,
+        "lose": 0
+      },
+      "6": {
+        "win": 30,
+        "lose": 0
+      },
+      "7": {
+        "win": 30,
+        "lose": 0
+      },
+      "8": {
+        "win": 30,
+        "lose": 0
+      },
+      "9": {
+        "win": 30,
+        "lose": 2
+      },
+      "10": {
+        "win": 30,
+        "lose": 16
+      },
+      "11": {
+        "win": 18,
+        "lose": 41
+      },
+      "12": {
+        "win": 0,
+        "lose": 31
+      }
+    },
+    "sessionEndMedianLevel": 11,
+    "medianFirstKill": 4.86,
+    "medianFirstMerge": 2.19,
+    "medianFirstLevelup": 9.64,
+    "medianRunDuration": 195.01,
+    "medianMerges": 17,
+    "medianLevelups": 8,
+    "medianSupplyDropped": 22,
+    "medianSupplyLost": 0,
+    "medianCoins": 201.5,
+    "recycledTotal": 0,
+    "boardFullEvents": 0,
+    "runsToMaxUpgrade": [],
+    "runsToMaxUpgradeEstimated": 22,
+    "upgradeTotalCost": 4377,
+    "adOpportunities": {
+      "reroll": 3379,
+      "double": 318,
+      "revive": 119
+    },
+    "adShows": {
+      "revive": 119
+    },
+    "adRewards": {
+      "revive": 119
+    },
+    "adOpportunityPerSession": 42.4,
+    "adShowPerSession": 1.32,
+    "fullBoardFramePct": 0,
+    "deadlockFramePct": 0,
+    "deadlockEvents": 0,
+    "deadlockMaxStreakSec": 0,
+    "deaths": {
+      "chewed": 90,
+      "timeout": 0
+    },
+    "peak": {
+      "enemies": 28,
+      "projectiles": 40,
+      "fxs": 30
+    },
+    "battleFrames": 4347742,
+    "stuckCount": 0,
+    "stuck": []
+  }
+}

@@ -8,11 +8,14 @@
 
 // ---------- 无头运行环境：与 tools/sim.js 共用 test/harness.js ----------
 const { createHarness } = require('./harness');
-const H = createHarness({ seed: 42 }); // 固定随机种子：测试结果可复现
+const H = createHarness({ seed: 42, recordText: true }); // 固定随机种子 + 记录绘制文本（可断言界面文案）
 H.install();
 
 // ---------- 载入游戏 ----------
 const App = require('../js/main');
+const { cellRect } = require('../js/ui/board');
+const CFG = require('../js/core/config');
+const Skills = require('../js/systems/skills');
 
 let pass = 0;
 let fail = 0;
@@ -251,9 +254,10 @@ step(0.05);
 check('打开升级面板', app.home.panel === 'upgrade');
 const coinsBeforeBuy = d.meta.coins;
 const buy0 = center(app.home.rects.buys[0]);
+const firstCost = CFG.UPGRADE_COST(0);
 touch('start', buy0.x, buy0.y); // 单击购买（首页面板无防误触，双击会连买两级）
-check('购买成功：显示器 +1 级（扣 80 金币）',
-  d.meta.upgrades.screen === 1 && d.meta.coins === coinsBeforeBuy - 80);
+check(`购买成功：显示器 +1 级（扣 ${firstCost} 金币）`,
+  d.meta.upgrades.screen === 1 && d.meta.coins === coinsBeforeBuy - firstCost);
 const closeBtn = center(app.home.rects.closePanel);
 touch('start', closeBtn.x, closeBtn.y);
 step(0.05);
@@ -266,8 +270,6 @@ check('存档已写入 storage', !!saved && saved.bestLevel >= 2 && saved.totalK
 
 // ---------- 11. 词缀生效：工作群静音（减伤）与明天再说（护盾） ----------
 console.log('\n[11] 减伤与护盾');
-const Skills = require('../js/systems/skills');
-const CFG = require('../js/core/config');
 d.meta.bestLevel = 1;
 tap(187.5, 320); // 新开一局：词缀回到初始值，便于断言精确伤害
 step(0.2);
@@ -385,6 +387,76 @@ check('兜底卡可点、弹层能关掉、金币到账',
   !!masteryCard && b7.coins === coinsBeforeMastery + CFG.MASTERY_COINS);
 drainLevelups();
 check('继续排空升级也不会再卡住', b7.modal === null);
+
+// ---------- 15. 装备回收（拖到桌面 ♻️ 换金币） ----------
+console.log('\n[15] 装备回收与满盘提示');
+// 上一节结束时还在战斗里，先按真人路径回首页再开新局
+touch('start', 348, 27); // ⏸
+step(0.05);
+const homeFromPause = center(d.battle.modal.rects.home);
+tap(homeFromPause.x, homeFromPause.y);
+step(0.1);
+check('从暂停面板回到首页', d.scene === 'home');
+d.meta.bestLevel = 1;
+tap(187.5, 320); // 开始摸鱼
+step(0.2);
+const b8 = d.battle;
+check('新局已开始（3 件初始装备、金币归零）',
+  d.scene === 'battle' && b8.board.cells.filter(Boolean).length === 3 && b8.coins === 0);
+const recycleEvBefore = H.countEvents('weapon_recycle');
+const coinsBeforeRecycle = b8.coins;
+const srcCell = cellRect(0);
+const rcy = CFG.RECYCLE_RECT;
+H.drag(
+  { x: srcCell.x + srcCell.w / 2, y: srcCell.y + srcCell.h / 2 },
+  { x: rcy.x + rcy.w / 2, y: rcy.y + rcy.h / 2 }
+);
+step(0.05);
+check('装备被回收、格子空出来', b8.board.cells[0] === null);
+check(`回收获金币（期望 +${CFG.recycleCoins(1)}，实际 +${b8.coins - coinsBeforeRecycle}）`,
+  b8.coins === coinsBeforeRecycle + CFG.recycleCoins(1));
+check(`回收计数与埋点都有（recycled=${b8.recycled}，事件+${H.countEvents('weapon_recycle') - recycleEvBefore}）`,
+  b8.recycled === 1 && H.countEvents('weapon_recycle') === recycleEvBefore + 1);
+check('回收价随等级递增', CFG.recycleCoins(5) > CFG.recycleCoins(3) && CFG.recycleCoins(3) > CFG.recycleCoins(1));
+// 棋盘塞满：空投无处可放必须给提示（此前是静默丢弃）
+b8.board.cells = b8.board.cells.map(() => ({ type: 'coffee', lv: 1 }));
+b8.hint = null;
+b8.supplyTimer = 0.01;
+step(0.2);
+check('棋盘满时空投失败并弹出提示条', !!b8.hint && b8.hint.text.indexOf('棋盘满') >= 0);
+check('棋盘满也有埋点', H.countEvents('board_full') >= 1);
+// 腾出一格后空投恢复正常，提示条到点自动消失
+b8.board.cells[0] = null;
+b8.hint = { text: '测试用', t: 0.02 };
+step(0.2);
+check('提示条到点自动消失', b8.hint === null);
+b8.supplyTimer = 0.01;
+step(0.2);
+check('腾出空格后空投能正常放下', b8.board.cells.filter(Boolean).length === 16);
+
+// ---------- 16. 失败复盘 ----------
+console.log('\n[16] 失败复盘');
+// 让一只怪贴到工位线上啃，看是否记下"谁在啃"
+b8.enemies.length = 0;
+app.battle.spawnEnemy('request');
+const foe = b8.enemies[0];
+foe.hp = foe.hpMax = 1e9;
+foe.attacking = true;
+foe.y = 340;
+b8.lastHitBy = '';
+step(0.2);
+check('记录啃工位的敌人类型（失败复盘用）', b8.lastHitBy === 'request');
+check('复盘会给一句可执行建议', typeof CFG.lossTip(b8) === 'string' && CFG.lossTip(b8).length >= 8);
+// 触发失败结算，确认面板上真的画出了复盘文案
+H.clearTexts();
+d.debug.damageBase(99999);
+step(0.1);
+const giveUp2 = b8.modal && b8.modal.type === 'revive' ? center(b8.modal.rects.giveup) : null;
+if (giveUp2) { tap(giveUp2.x, giveUp2.y); step(0.1); }
+check('进入失败结算', b8.modal && b8.modal.type === 'result' && b8.modal.win === false);
+check('结算面板画出了"谁啃掉最后一滴血"', H.hasText('啃掉了最后一点血'));
+check('结算面板画出了"撑到多久/还剩几只"', H.hasText('场上还剩'));
+check('结算面板画出了改进建议', H.hasText(CFG.lossTip(b8)));
 
 // ---------- 结果 ----------
 console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

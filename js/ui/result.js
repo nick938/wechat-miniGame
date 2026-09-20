@@ -88,6 +88,14 @@ class Result {
       U.drawText(ctx, `下一关：第 ${b.level + 1} 关 ▶`, W / 2, y + 24, 15, '#ffffff', 'center', 'bold');
       y += BTN_H + 12;
     } else {
+      // 失败复盘：说清是怎么输的、这一关差多少、下次怎么改（别只丢一句"工位沦陷"）
+      const killer = C.ENEMIES[b.lastHitBy];
+      U.drawText(ctx, `被 ${killer ? `${killer.emoji} ${killer.name}` : '一波需求'} 啃掉了最后一点血`,
+        W / 2, panelY + 276, 12, '#ff6b6b', 'center', 'bold');
+      U.drawText(ctx, `撑到 ${Math.round(b.time)}s / ${b.cfg.duration}s · 场上还剩 ${b.enemies.length} 只`,
+        W / 2, panelY + 298, 11, '#999999');
+      U.drawText(ctx, C.lossTip(b), W / 2, panelY + 320, 11, '#4a90d9');
+      y = panelY + 344;
       rects.retry = { x: (W - BTN_W) / 2, y, w: BTN_W, h: BTN_H };
       U.drawPanel(ctx, rects.retry.x, y, BTN_W, BTN_H, 24, '#4a90d9');
       U.drawText(ctx, '再战一局 🔁', W / 2, y + 24, 15, '#ffffff', 'center', 'bold');

@@ -80,7 +80,10 @@ const ENEMY_POOL_BY_LEVEL = [
 // ---------- 关卡 ----------
 const LEVEL_NAMES = ['周一早会', '临时需求', '改需求了', 'Bug大爆发', '老板巡查', '灰度发布', '年底冲KPI', '年终述职'];
 const BOSS_EVERY = 4;          // 每 4 关一个 Boss（第 4、8 关…）
-const SUPPLY_INTERVAL = 22;    // 补给投放间隔（秒）
+// 补给间隔（秒）：合成是这游戏的主操作，间隔太大就会"每局只合 6 次"（基线实测），
+// 9 秒一投 ⇒ 每局到手约 24 件，合成次数才够（目标 15 次/场），棋盘也才会真的挤起来，
+// 让"回收换金币"和"棋盘满了"的提示有存在意义
+const SUPPLY_INTERVAL = 9;
 const BASE_HP = 100;           // 工位基础生命
 
 // 生成第 n 关配置（n 从 1 开始；>8 为无尽）
@@ -118,6 +121,18 @@ function buildLevel(n) {
   };
 }
 
+// ---------- 失败复盘 ----------
+// 输的时候给一句"下次怎么改"，别让玩家只看到"工位沦陷"
+const lossTip = (b) => {
+  const cells = b.board.cells.filter(Boolean);
+  const maxLv = cells.reduce((m, c) => (c.lv > m ? c.lv : m), 0);
+  const attacking = b.enemies.filter((e) => e.attacking).length;
+  if (attacking >= 3) return '被怪贴脸是主因：合成键盘（穿透一列）清贴脸最快';
+  if (cells.length >= 12) return '棋盘快满了：拖几件到 ♻️ 换金币，腾位置接空投';
+  if (maxLv < 3) return '先把同类装备堆出一件 LV3，火力会有明显台阶';
+  return '下一把试试把三选一留给全局加成（降本增效 / 自动摸鱼脚本）';
+};
+
 // ---------- 肉鸽技能 ----------
 // rarity: 1白 2蓝 3紫 4橙；maxStack 为最大叠加层数
 const SKILLS = [
@@ -147,13 +162,24 @@ const RARITY_COLOR = { 1: '#9aa5b1', 2: '#4a90d9', 3: '#9b59d0', 4: '#e8a33d' };
 // 所有技能都点满后的兜底奖励卡（否则三选一弹层会没有可选卡，把玩家永久卡在弹层里）
 const MASTERY_COINS = 80;
 
+// ---------- 装备回收 ----------
+// 拖拽时出现在工位桌面上的回收条：把装备丢进去换金币（有舍才有得，也是解堵的唯一手动出路）
+const RECYCLE_RECT = {
+  x: BOARD_X0,
+  y: BASE_Y - 16,
+  w: BOARD_COLS * BOARD_CELL + (BOARD_COLS - 1) * BOARD_GAP,
+  h: 30,
+};
+const recycleCoins = (lv) => Math.round(12 * Math.pow(2.2, lv - 1)); // LV1 12 → LV5 280
+const HINT_SEC = 3.2;          // 战场提示条停留时长
+
 // ---------- 局外成长（工位升级） ----------
 const UPGRADES = {
   screen: { id: 'screen', name: '显示器', emoji: '🖥️', desc: '全体伤害', perTier: 0.06, maxTier: 5, fmt: (v) => `+${Math.round(v * 100)}%` },
   chair:  { id: 'chair',  name: '人体工学椅', emoji: '🪑', desc: '工位生命', perTier: 12, maxTier: 5, fmt: (v) => `+${v} HP` },
   fish:   { id: 'fish',   name: '摸鱼学', emoji: '🐟', desc: '金币收益', perTier: 0.06, maxTier: 5, fmt: (v) => `+${Math.round(v * 100)}%` },
 };
-const UPGRADE_COST = (tier) => Math.round(80 * Math.pow(2, tier)); // tier 从 0 计
+const UPGRADE_COST = (tier) => Math.round(60 * Math.pow(1.85, tier)); // tier 从 0 计：60/111/205/379/701，三线合计 4368
 
 // ---------- 广告 ----------
 const AD_UNIT_ID = ''; // 上线前在微信后台创建激励视频广告位并填到这里；留空则走模拟广告
@@ -161,8 +187,9 @@ const CHEST_PER_DAY = 3;
 const REROLL_PER_RUN = 2;      // 每局技能刷新次数（看广告）
 
 // ---------- 经验曲线 ----------
-// 前段刻意偏快：让玩家 30 秒内迎来第一次三选一（计划书 §38 的节奏目标）
-const expNeed = (lvl) => 8 + 6 * (lvl - 1);
+// 前段刻意偏快：让玩家 30 秒内迎来第一次三选一（计划书 §38 的节奏目标）；
+// 后续也别拖：目标是每场 8 次以上三选一（每 20 秒左右一次决策），否则"决策深度"只是纸面
+const expNeed = (lvl) => 5 + 4 * (lvl - 1);
 
 // ---------- 快进 ----------
 const SPEED_STEPS = [1, 2, 3]; // 战斗内倍速循环档位
@@ -180,6 +207,8 @@ module.exports = {
   DESIGN_W, DESIGN_H, HUD_H, BASE_Y, BOARD_CELL, BOARD_GAP, BOARD_COLS, BOARD_ROWS, BOARD_X0, BOARD_Y0,
   WEAPONS, WEAPON_TYPES, MAX_WEAPON_LV,
   ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_NAMES, BOSS_EVERY, SUPPLY_INTERVAL, BASE_HP,
+  RECYCLE_RECT, recycleCoins, HINT_SEC,
+  lossTip,
   buildLevel,
   SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR, MASTERY_COINS,
   UPGRADES, UPGRADE_COST,

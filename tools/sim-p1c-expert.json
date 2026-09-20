@@ -1,0 +1,151 @@
+{
+  "meta": {
+    "tier": "expert",
+    "players": 30,
+    "sessions": 3,
+    "seed": 1,
+    "elapsedSec": 118.3,
+    "frames": 4704199
+  },
+  "summary": {
+    "sessions": 90,
+    "runs": 419,
+    "wins": 329,
+    "loses": 90,
+    "passByLevel": {
+      "1": {
+        "win": 30,
+        "lose": 0
+      },
+      "2": {
+        "win": 30,
+        "lose": 0
+      },
+      "3": {
+        "win": 30,
+        "lose": 0
+      },
+      "4": {
+        "win": 30,
+        "lose": 0
+      },
+      "5": {
+        "win": 30,
+        "lose": 0
+      },
+      "6": {
+        "win": 30,
+        "lose": 0
+      },
+      "7": {
+        "win": 30,
+        "lose": 0
+      },
+      "8": {
+        "win": 30,
+        "lose": 0
+      },
+      "9": {
+        "win": 30,
+        "lose": 0
+      },
+      "10": {
+        "win": 30,
+        "lose": 6
+      },
+      "11": {
+        "win": 28,
+        "lose": 28
+      },
+      "12": {
+        "win": 1,
+        "lose": 55
+      },
+      "13": {
+        "win": 0,
+        "lose": 1
+      }
+    },
+    "sessionEndMedianLevel": 12,
+    "medianFirstKill": 4.859700000867259,
+    "medianFirstMerge": 0.1670000000298023,
+    "medianFirstLevelup": 9.769500001743472,
+    "medianRunDuration": 195.00590003477149,
+    "medianMerges": 18,
+    "medianLevelups": 8,
+    "medianSupplyDropped": 22,
+    "medianSupplyLost": 0,
+    "medianCoins": 211,
+    "recycledTotal": 339,
+    "boardFullEvents": 0,
+    "runsToMaxUpgrade": [
+      12,
+      12,
+      12,
+      12,
+      13,
+      13,
+      13,
+      13,
+      13,
+      13,
+      13,
+      13,
+      13,
+      12,
+      12,
+      13,
+      13,
+      13,
+      12,
+      13,
+      12,
+      13,
+      13,
+      12,
+      13,
+      13,
+      13,
+      12,
+      13,
+      12
+    ],
+    "runsToMaxUpgradeEstimated": 21,
+    "upgradeTotalCost": 4377,
+    "adOpportunities": {
+      "reroll": 2610,
+      "double": 329,
+      "revive": 115
+    },
+    "adShows": {
+      "chest": 90,
+      "reroll": 456,
+      "double": 329,
+      "revive": 115
+    },
+    "adRewards": {
+      "chest": 90,
+      "reroll": 456,
+      "double": 329,
+      "revive": 115
+    },
+    "adOpportunityPerSession": 33.93,
+    "adShowPerSession": 11,
+    "fullBoardFramePct": 0,
+    "deadlockFramePct": 0,
+    "deadlockEvents": 0,
+    "deadlockMaxStreakSec": 0,
+    "deaths": {
+      "chewed": 90,
+      "timeout": 0
+    },
+    "peak": {
+      "enemies": 30,
+      "projectiles": 42,
+      "fxs": 37
+    },
+    "battleFrames": 4521190,
+    "stuckCount": 0,
+    "stuck": []
+  }
+}
