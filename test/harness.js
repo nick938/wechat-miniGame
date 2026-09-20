@@ -29,9 +29,9 @@ function makeFastCtx(rec) {
 }
 
 // Proxy 版：未知方法也安全（冒烟测试用；新增 ctx 方法不会让测试直接炸）
-// 顺带统计 ctx.font 的赋值次数（字体缓存是否生效的实测证据）
+// 顺带统计 ctx.font 赋值次数与 drawImage/fillRect 调用次数（性能优化是否有实效的证据）
 function makeSlowCtx(rec) {
-  const t = { __fontSets: 0 };
+  const t = { __fontSets: 0, __drawImages: 0, __fillRects: 0 };
   return new Proxy(t, {
     get(target, key) {
       if (key in target) return target[key];
@@ -39,6 +39,8 @@ function makeSlowCtx(rec) {
       if (key === 'createLinearGradient' || key === 'createRadialGradient') {
         return () => ({ addColorStop() {} });
       }
+      if (key === 'drawImage') return () => { target.__drawImages++; };
+      if (key === 'fillRect') return () => { target.__fillRects++; };
       if (rec && (key === 'fillText' || key === 'strokeText')) return (s) => rec(String(s));
       return () => 0; // 其余方法一律 no-op
     },
@@ -88,6 +90,16 @@ function createHarness(opts) {
     height: 0,
     getContext: () => ctx,
   };
+  // 第一次 createCanvas = 上屏画布；之后的 = 离屏画布（离屏缓存需要一块独立的）
+  let canvasCalls = 0;
+  const offscreenCanvases = [];
+  function createCanvas() {
+    canvasCalls++;
+    if (canvasCalls === 1) return fakeCanvas;
+    const c = { width: 0, height: 0, getContext: () => makeSlowCtx(null), __offscreen: true };
+    offscreenCanvases.push(c);
+    return c;
+  }
 
   const H = {
     storageMap,
@@ -102,6 +114,7 @@ function createHarness(opts) {
     get shareHandler() { return shareHandler; },
     get hideHandler() { return hideHandler; },
     get showHandler() { return showHandler; },
+    get offscreenCanvases() { return offscreenCanvases; },
     get now() { return now; },
 
     // 载入游戏代码之前调用（js/render.js 在 require 时就会碰 wx）
@@ -110,7 +123,7 @@ function createHarness(opts) {
         getSystemInfoSync: () => ({
           windowWidth: 375, windowHeight: 667, pixelRatio: 3, platform: 'devtools',
         }),
-        createCanvas: () => fakeCanvas,
+        createCanvas: () => createCanvas(),
         onTouchStart: (cb) => { touchHandlers.start = cb; },
         onTouchMove: (cb) => { touchHandlers.move = cb; },
         onTouchEnd: (cb) => { touchHandlers.end = cb; },

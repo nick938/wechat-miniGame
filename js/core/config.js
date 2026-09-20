@@ -98,7 +98,10 @@ const LEVEL_POOL_BONUS = {
 
 // ---------- 关卡 ----------
 const LEVEL_NAMES = ['周一早会', '临时需求', '改需求了', 'Bug大爆发', '老板巡查', '灰度发布', '年底冲KPI', '年终述职'];
-const BOSS_EVERY = 4;          // 每 4 关一个 Boss（第 4、8 关…）
+const BOSS_EVERY = 4;          // 每 4 关一个 Boss（第 4、8、12 关…）
+// Boss 关额外血量倍率，按 Boss 序号给：第 4 关当"教学 Boss"、第 8 关是真正的"墙"、
+// 第 12 关不再额外加（关卡自身的成长已经够陡，再加就变成谁都打不过的死墙）
+const BOSS_HP_MUL_BY_INDEX = [1.2, 2.8, 0.8];
 const BOSS_WARN_SEC = 8;       // Boss 出场前多少秒开始预警（给玩家整理棋盘的时间）
 // 补给间隔（秒）：合成是这游戏的主操作，间隔太大就会"每局只合 6 次"（基线实测），
 // 9 秒一投 ⇒ 每局到手约 24 件，合成次数才够（目标 15 次/场），棋盘也才会真的挤起来，
@@ -118,11 +121,15 @@ function levelPool(n) {
 }
 
 // 生成第 n 关配置（n 从 1 开始；>8 为无尽）
+// 曲线形状：Boss 关做"墙"（血量额外 ×1.6），非 Boss 关放缓（每关 +26%）
+// —— 这样技巧/资源积累够的玩家能在 Boss 关之后继续往深走，不够的会卡在 Boss 关
 function buildLevel(n) {
   const duration = Math.min(255, 150 + (n - 1) * 15);
-  const hpMul = (1 + (n - 1) * 0.35) * (n > 8 ? Math.pow(1.35, n - 8) : 1);
-  const spMul = 1 + Math.min(0.5, (n - 1) * 0.04);
   const isBoss = n % BOSS_EVERY === 0;
+  const bossIdx = isBoss ? Math.floor(n / BOSS_EVERY - 1) % BOSS_HP_MUL_BY_INDEX.length : -1;
+  const bossMul = isBoss ? BOSS_HP_MUL_BY_INDEX[bossIdx] : 1;
+  const hpMul = (1 + (n - 1) * 0.20) * (n > 8 ? Math.pow(1.22, n - 8) : 1) * bossMul;
+  const spMul = 1 + Math.min(0.5, (n - 1) * 0.04);
   const pool = levelPool(n);
   const bossType = isBoss ? BOSS_ROTATION[Math.floor(n / BOSS_EVERY - 1) % BOSS_ROTATION.length] : null;
 
@@ -207,6 +214,21 @@ const RECYCLE_RECT = {
 const recycleCoins = (lv) => Math.round(12 * Math.pow(2.2, lv - 1)); // LV1 12 → LV5 280
 const HINT_SEC = 3.2;          // 战场提示条停留时长
 const FX_MAX = 80;             // 单帧特效上限（超过就丢弃新特效，保帧率）
+const PROJ_MAX = 60;           // 单帧弹丸上限（叠加了攻速后仍要有硬上限兜底）
+
+// ---------- 定向升星 ----------
+// 打死 Boss 得一张「升星券」：点 ⬆️ 进入选择状态，再点棋盘上任意一件装备直接升一级。
+// 与"拖动合成"互补——合成要有同类同级的一对，升星券想升谁升谁，是给玩家的定向决策
+const STAR_TICKET_PER_BOSS = 1;
+const STAR_TICKET_MAX = 3;     // 一局最多攒这么多，防囤积
+const STAR_BTN = { x: DESIGN_W - 134, y: 8, w: 38, h: 38 }; // 战斗 HUD 上的升星按钮（在倍速左边）
+
+// ---------- 敌人主攻列（站位取舍） ----------
+// 七成的波次会集中在某一列压进来，并在战场上打出红色预警带：
+// 玩家据此决定"要不要把键盘挪到那一列"——这就是站位这件事的意义
+const HOT_COL_CHANCE = 0.7;
+const HOT_COL_BAND = 42;       // 主攻列两侧各多少像素算"这一列"
+const HOT_COL_SHOW_SEC = 2.5;  // 预警带残留时间
 
 // ---------- 局外成长（工位升级） ----------
 const UPGRADES = {
@@ -265,8 +287,10 @@ const calcScore = (b) => Math.max(0, Math.round(
 module.exports = {
   DESIGN_W, DESIGN_H, HUD_H, BASE_Y, BOARD_CELL, BOARD_GAP, BOARD_COLS, BOARD_ROWS, BOARD_X0, BOARD_Y0,
   WEAPONS, WEAPON_TYPES, MAX_WEAPON_LV,
-  ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_POOL_BONUS, BOSS_ROTATION, LEVEL_NAMES, BOSS_EVERY, BOSS_WARN_SEC, SUPPLY_INTERVAL, BASE_HP,
-  RECYCLE_RECT, recycleCoins, HINT_SEC, FX_MAX,
+  ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_POOL_BONUS, BOSS_ROTATION, LEVEL_NAMES, BOSS_EVERY, BOSS_HP_MUL_BY_INDEX, BOSS_WARN_SEC, SUPPLY_INTERVAL, BASE_HP,
+  RECYCLE_RECT, recycleCoins, HINT_SEC, FX_MAX, PROJ_MAX,
+  STAR_TICKET_PER_BOSS, STAR_TICKET_MAX, STAR_BTN,
+  HOT_COL_CHANCE, HOT_COL_BAND, HOT_COL_SHOW_SEC,
   lossTip,
   buildLevel,
   levelPool,

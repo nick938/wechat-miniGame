@@ -94,6 +94,8 @@ class Databus {
       regenAcc: 0,
       lastHitBy: '',        // 最近一次啃到工位的敌人类型（失败复盘用）
       recycled: 0,          // 本局回收装备件数
+      starTickets: 0,       // 本局升星券（打死 Boss 得）
+      starArmed: false,     // 是否处于"选装备升星"状态
       hint: null,           // 战场提示条 {text, t}
       bossWarn: 0,          // Boss 出场倒计时（秒，0 = 不显示）
       bossWarned: false,    // 本轮预警是否已上报埋点

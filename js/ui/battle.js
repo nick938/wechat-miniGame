@@ -12,7 +12,7 @@ const WaveCtl = require('../systems/waves');
 const Daily = require('../systems/daily');
 const Ach = require('../systems/achievements');
 const { track } = require('../services/track');
-const { Board, cellRect } = require('./board');
+const { Board, cellRect, cellAt } = require('./board');
 const LevelUp = require('./levelup');
 const Result = require('./result');
 
@@ -77,12 +77,24 @@ class BattleScene {
   }
 
   // ---------- 生成与结算 ----------
-  spawnEnemy(type) {
+  spawnEnemy(type, col) {
     const d = this.app.databus;
     const b = d.battle;
     if (b.enemies.length > 80) return;
     const e = d.pool.getItemByClass('enemy', Enemy);
-    e.init(type, b.cfg, b.mods);
+    // 主攻列：这一波的怪集中落在该列（±带内），其余随机撒开
+    let x = null;
+    if (col != null && col >= 0) {
+      const cx = WeaponSys.cellCenterX(col);
+      x = U.clamp(cx + U.rand(-C.HOT_COL_BAND, C.HOT_COL_BAND), 20, C.DESIGN_W - 20);
+      b.hotCol = { col, t: C.HOT_COL_SHOW_SEC };
+      if (!b.hotColTipShown) {
+        b.hotColTipShown = true;
+        this.showHint('这波从红色那列涌来：把键盘拖过去能穿一整列');
+        track('hot_col', { col });
+      }
+    }
+    e.init(type, b.cfg, b.mods, x);
     b.enemies.push(e);
     if (e.boss) {
       b.bossRef = e;
@@ -116,8 +128,10 @@ class BattleScene {
 
   spawnProjectile(kind, x, y, opts) {
     const d = this.app.databus;
+    const b = this.b;
+    if (b.projectiles.length >= C.PROJ_MAX) return; // 弹丸硬上限（叠加攻速后兜底）
     const p = d.pool.getItemByClass('proj', Projectile).init(kind, x, y, opts);
-    this.b.projectiles.push(p);
+    b.projectiles.push(p);
   }
 
   spawnBomb(x, y, dmg, radius, fuse) {
@@ -193,6 +207,13 @@ class BattleScene {
       b.bossRef = null;
       this.addFx('text', e.x, e.y, { text: `+${Math.round(e.coin * b.mods.coinMul)} 🪙`, color: '#e8a33d', size: 18 });
       this.app.audio.playBoom();
+      // 打死 Boss 得升星券：给玩家一次"想升谁就升谁"的定向决策
+      if (b.starTickets < C.STAR_TICKET_MAX) {
+        b.starTickets += C.STAR_TICKET_PER_BOSS;
+        this.addFx('text', C.DESIGN_W / 2, C.BASE_Y - 60, { text: '⬆️ 升星券 +1', color: '#9b59d0', size: 16 });
+        this.showHint('拿到升星券：点 ⬆️ 再点装备，直接升一级');
+      }
+      track('star_ticket', { level: b.level, tickets: b.starTickets });
     }
     this.app.databus.pool.recover('enemy', e);
   }
@@ -247,12 +268,16 @@ class BattleScene {
       b.hint.t -= dt;
       if (b.hint.t <= 0) b.hint = null;
     }
+    if (b.hotCol) {
+      b.hotCol.t -= dt;
+      if (b.hotCol.t <= 0) b.hotCol = null;
+    }
 
     const inMergeLesson = this.tutorial && this.tutorial.step === 'merge';
     if (!inMergeLesson) {
       // 刷怪
       this.waves.setElapsed(b.time);
-      this.waves.update(dt, b.mods).forEach((type) => this.spawnEnemy(type));
+      this.waves.update(dt, b.mods).forEach((sp) => this.spawnEnemy(sp.type, sp.col));
       while (this.spawnQueue.length) {
         this.spawnEnemy(this.spawnQueue.pop());
       }
@@ -420,6 +445,37 @@ class BattleScene {
     }
     const hit = (r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
     const inMergeLesson = this.tutorial && this.tutorial.step === 'merge';
+    // 升星：点 ⬆️ 进入选择状态，再点一件装备直接升一级（先于拖拽判定，避免误拖）
+    if (!inMergeLesson && b.starTickets > 0 && hit(C.STAR_BTN)) {
+      b.starArmed = !b.starArmed;
+      if (b.starArmed) this.showHint('选一件装备升一级（点棋盘上的装备）');
+      return;
+    }
+    if (b.starArmed) {
+      const ci = cellAt(x, y);
+      const item = ci >= 0 ? b.board.cells[ci] : null;
+      if (item) {
+        if (item.lv < C.MAX_WEAPON_LV) {
+          item.lv++;
+          b.starTickets--;
+          b.starArmed = b.starTickets > 0;
+          if (item.lv > b.maxLv) b.maxLv = item.lv;
+          U.vibrate();
+          this.app.audio.playHit();
+          this.addFx('ring', WeaponSys.cellCenterX(ci), WeaponSys.cellCenterY(ci), { r1: 38, color: '#9b59d0' });
+          this.addFx('text', WeaponSys.cellCenterX(ci), WeaponSys.cellCenterY(ci) - 26, {
+            text: `⬆️ ${C.WEAPONS[item.type].name} LV${item.lv}`, color: '#9b59d0', size: 14,
+          });
+          track('weapon_starup', { lv: item.lv, type: item.type });
+        } else {
+          this.showHint('这件已经满级了（LV5），换一件');
+        }
+        return;
+      }
+      // 点到棋盘外：取消选择，不当成误操作
+      b.starArmed = false;
+      return;
+    }
     if (!inMergeLesson && hit(SPEED_BTN)) {
       // 倍速循环 ×1 → ×2 → ×3 → ×1，偏好存档
       const steps = C.SPEED_STEPS;
@@ -552,7 +608,42 @@ class BattleScene {
   }
 
   renderField(ctx) {
-    // 办公室地毯：淡条纹
+    // 静态背景缓存：地毯条纹 + 工位桌面只画一次，之后每帧 drawImage 上屏
+    // （拿不到离屏画布就退回逐帧绘制，行为完全一致）
+    if (!this.fieldLayer) this.fieldLayer = this.buildFieldLayer();
+    if (this.fieldLayer) {
+      ctx.drawImage(this.fieldLayer.canvas, 0, C.HUD_H, C.DESIGN_W, C.BASE_Y - C.HUD_H);
+    } else {
+      this.paintField(ctx);
+    }
+    // 主攻列预警带是动态的，每帧画在缓存之上
+    const hc = this.b.hotCol;
+    if (hc) {
+      const cx = WeaponSys.cellCenterX(hc.col);
+      ctx.globalAlpha = 0.14 * Math.min(1, hc.t / 1);
+      ctx.fillStyle = '#ff4d4d';
+      ctx.fillRect(cx - C.HOT_COL_BAND, C.HUD_H, C.HOT_COL_BAND * 2, C.BASE_Y - C.HUD_H);
+      ctx.globalAlpha = 1;
+      U.drawText(ctx, '▼', cx, C.HUD_H + 12, 16, 'rgba(255,77,77,0.9)');
+    }
+  }
+
+  // 把静态部分画进离屏画布（只做一次）
+  buildFieldLayer() {
+    const screen = GameGlobal.screen;
+    if (!screen || !screen.createOffscreen) return null;
+    const layer = screen.createOffscreen(C.DESIGN_W, C.BASE_Y - C.HUD_H);
+    if (!layer) return null;
+    const c = layer.ctx;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.translate(0, -C.HUD_H);      // 用屏幕坐标画，省得换算
+    this.paintField(c);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    return layer;
+  }
+
+  // 静态部分的实际画法（离屏与回退路径共用同一份代码）
+  paintField(ctx) {
     ctx.fillStyle = '#f0ebe1';
     ctx.fillRect(0, C.HUD_H, C.DESIGN_W, C.BASE_Y - C.HUD_H);
     ctx.fillStyle = 'rgba(210,200,185,0.35)';
@@ -634,6 +725,13 @@ class BattleScene {
         hot ? '#e8a33d' : '#f0ebe1');
       U.drawText(ctx, `×${b.speed}`, SPEED_BTN.x + SPEED_BTN.w / 2, SPEED_BTN.y + SPEED_BTN.h / 2, 14,
         hot ? '#ffffff' : '#666666', 'center', 'bold');
+      // 升星券按钮：有券才显示，选装备状态高亮
+      if (b.starTickets > 0) {
+        const B = C.STAR_BTN;
+        U.drawPanel(ctx, B.x, B.y, B.w, B.h, 10, b.starArmed ? '#9b59d0' : '#f0ebe1');
+        U.drawText(ctx, `⬆️${b.starTickets}`, B.x + B.w / 2, B.y + B.h / 2, 13,
+          b.starArmed ? '#ffffff' : '#666666', 'center', 'bold');
+      }
     }
 
     // 经验条

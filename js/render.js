@@ -49,6 +49,21 @@ GameGlobal.screen = {
   beginFrame,
   ctx,
   canvas,
+  // 离屏画布（静态背景缓存用）：拿不到就返回 null，调用方退回直接绘制
+  createOffscreen(w, h) {
+    try {
+      if (typeof wx === 'undefined' || !wx.createCanvas) return null;
+      const c = wx.createCanvas();
+      if (!c || !c.getContext) return null;
+      c.width = w;
+      c.height = h;
+      const octx = c.getContext('2d');
+      if (!octx) return null;
+      return { canvas: c, ctx: octx, w, h };
+    } catch (e) {
+      return null;
+    }
+  },
 };
 
 // 触摸事件统一换成设计坐标再分发

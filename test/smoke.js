@@ -1017,6 +1017,91 @@ check('回前台会丢掉后台期间的时间差', app.last === 0);
 step(0.1);
 check('恢复后战斗继续推进（时间在走）', b16.time > 0);
 
+// ---------- 25. 定向升星 / 主攻列站位 / 静态背景离屏缓存 ----------
+console.log('\n[25] 定向升星 · 主攻列 · 离屏缓存');
+exitToHome();
+d.meta.bestLevel = 1;
+tap(187.5, 320);
+step(0.2);
+const b17 = d.battle;
+check('新局开局（本节前提）', d.scene === 'battle' && b17.starTickets === 0 && b17.starArmed === false);
+
+// —— 定向升星：打死 Boss 得券 → 点券 → 点装备升一级 ——
+b17.starTickets = 0;
+app.battle.spawnEnemy('boss');
+const starBoss = b17.enemies[b17.enemies.length - 1];
+starBoss.hp = 1;
+app.battle.damageEnemy(starBoss, 10, false);
+step(1 / 60);
+check('打死 Boss 得 1 张升星券', b17.starTickets === 1);
+check('升星券有埋点', H.countEvents('star_ticket') >= 1);
+drainLevelups(); // Boss 的 40 经验会弹三选一；不排空的话后面的点击都会被弹层吃掉
+check('排空升级弹层（本节前提）', b17.modal === null);
+// 单点一下 ⬆️（HUD 按钮没有防误触，用单击才是准确模拟；tap 的第二次触点会被"点棋盘外=取消"逻辑吃掉）
+touch('start', CFG.STAR_BTN.x + CFG.STAR_BTN.w / 2, CFG.STAR_BTN.y + CFG.STAR_BTN.h / 2);
+step(0.05);
+check('点升星按钮进入选装备状态', b17.starArmed === true);
+const pickCell = b17.board.cells.findIndex(Boolean);
+const lvBefore = b17.board.cells[pickCell].lv;
+const c0 = cellRect(pickCell);
+touch('start', c0.x + c0.w / 2, c0.y + c0.h / 2);
+step(0.05);
+check('点装备直接升一级（定向升星生效）', b17.board.cells[pickCell].lv === lvBefore + 1);
+check('升星消耗 1 张券、券用完退出选择状态', b17.starTickets === 0 && b17.starArmed === false);
+check('升星有埋点', H.countEvents('weapon_starup') >= 1);
+// 满级装备不能再升（券不白扣）
+b17.board.cells[pickCell].lv = CFG.MAX_WEAPON_LV;
+b17.starTickets = 1;
+touch('start', CFG.STAR_BTN.x + CFG.STAR_BTN.w / 2, CFG.STAR_BTN.y + CFG.STAR_BTN.h / 2);
+step(0.05);
+touch('start', c0.x + c0.w / 2, c0.y + c0.h / 2);
+step(0.05);
+check('LV5 装备不会被升星（券不白扣）',
+  b17.board.cells[pickCell].lv === CFG.MAX_WEAPON_LV && b17.starTickets === 1);
+b17.starArmed = false;
+b17.starTickets = 0;
+
+// —— 主攻列：集中在某一列压进 + 预警带 ——
+b17.enemies.length = 0;
+b17.hotColTipShown = false;  // 复位"首次提示"标记，单独验证一次
+app.battle.spawnEnemy('bug', 2);
+step(0.05);                  // 渲染一帧，提示条才会画出来
+check('主攻列首次出现时给了操作提示', H.hasText('把键盘拖过去'));
+let inBand = 0;
+let total = 0;
+let sawBand = false;
+for (let round = 0; round < 60; round++) {
+  b17.enemies.length = 0;
+  app.battle.spawnEnemy('bug', 2); // 指定主攻列 2
+  const e = b17.enemies[0];
+  const cx = CFG.BOARD_X0 + 2 * (CFG.BOARD_CELL + CFG.BOARD_GAP) + CFG.BOARD_CELL / 2;
+  total++;
+  if (Math.abs(e.x - cx) <= CFG.HOT_COL_BAND + 1) inBand++;
+  if (b17.hotCol && b17.hotCol.col === 2) sawBand = true;
+}
+check(`主攻列的怪确实落在该列带宽内（${inBand}/${total}）`, inBand === total);
+check('主攻列会点亮预警带', sawBand);
+b17.hotCol = { col: 1, t: 1 };
+step(0.05);
+check('预警带有残留时间（够玩家反应）', !!b17.hotCol && b17.hotCol.t > 0);
+
+// —— 静态背景离屏缓存：背景改为每帧一次 drawImage，而不是逐帧重画条纹 ——
+const mainCtx = H.ctx;
+mainCtx.__drawImages = 0;
+step(0.5);
+check(`战斗中每帧用 drawImage 上屏缓存背景（30 帧 ${mainCtx.__drawImages} 次）`,
+  mainCtx.__drawImages >= 30);
+check('离屏画布确实被创建了',
+  H.offscreenCanvases.length >= 1 && H.offscreenCanvases[0].__offscreen === true);
+// 拿不到离屏画布时必须退回逐帧绘制（不能崩）
+const realCreateCanvas = wx.createCanvas;
+wx.createCanvas = () => null;
+app.battle.fieldLayer = null;
+step(0.1);
+check('拿不到离屏画布时退回逐帧绘制且不崩', !!d.battle && d.scene === 'battle');
+wx.createCanvas = realCreateCanvas;
+app.battle.fieldLayer = null; // 复位，后续需要时重建
+
 // ---------- 结果 ----------
   console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);
   process.exit(fail ? 1 : 0);
