@@ -36,7 +36,7 @@ class Result {
     LB.submitScore(d.meta, score);
 
     // 每日任务进度（一局一结算，只写一次存储）
-    Daily.flush(d, { win, kills: b.kills, merges: b.merges });
+    Daily.flush(d, { win, kills: b.kills, merges: b.merges, recycled: b.recycled, bossKills: b.bossKills });
     // 长期统计（成就 + 图鉴）同样一局只写一次
     Ach.flush(d, {
       win, kills: b.kills, merges: b.merges, recycled: b.recycled,

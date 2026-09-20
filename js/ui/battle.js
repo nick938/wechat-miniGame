@@ -204,6 +204,7 @@ class BattleScene {
       b.baseHp = Math.min(b.baseHpMax, b.baseHp + b.baseHpMax * b.mods.lifesteal);
     }
     if (e.boss) {
+      b.bossKills++;
       b.bossRef = null;
       this.addFx('text', e.x, e.y, { text: `+${Math.round(e.coin * b.mods.coinMul)} 🪙`, color: '#e8a33d', size: 18 });
       this.app.audio.playBoom();
@@ -509,12 +510,12 @@ class BattleScene {
     const b = d.battle;
     if (!b || b.settled) return;
     b.settled = true;
-    // 中途退出也算每日任务进度（合成/击杀不白费），但没有"通关"这一项
-    Daily.flush(d, { win: false, kills: b.kills, merges: b.merges });
+    // 中途退出也算每日任务进度（合成/击杀/回收/Boss 都不白费），但没有"通关"这一项
     Ach.flush(d, {
       win: false, kills: b.kills, merges: b.merges, recycled: b.recycled,
       maxLv: b.maxLv, killsByType: b.killsByType,
     });
+    Daily.flush(d, { win: false, kills: b.kills, merges: b.merges, recycled: b.recycled, bossKills: b.bossKills });
     if (b.coins > 0) {
       d.meta.coins += b.coins;
       d.meta.totalKills += b.kills;

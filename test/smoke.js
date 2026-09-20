@@ -596,18 +596,30 @@ d.meta.daily = null;
 Daily.ensure(d);
 check('新的一天从 0 进度开始', Daily.state(d).every((t) => t.progress === 0 && !t.claimed));
 check('免费宝箱每天 1 次', Daily.freeChestLeft(d) === 1);
-// 一局打完按局结算（一次写入）
-Daily.flush(d, { win: true, kills: 40, merges: 12 });
+// 今天的 3 个任务来自任务池（每天固定、跨天会换）
+const dayIds = Daily.todaysTasks(d).map((t) => t.id);
+check(`今天抽到 ${CFG.DAILY_TASKS_PER_DAY} 个任务且都来自池子（${dayIds.join('/')}）`,
+  dayIds.length === CFG.DAILY_TASKS_PER_DAY &&
+  dayIds.every((id) => CFG.DAILY_POOL.some((x) => x.id === id)) &&
+  new Set(dayIds).size === dayIds.length);
+check('同一天再取一次还是同一组（不会每次进页面都换）',
+  Daily.todaysTasks(d).map((t) => t.id).join(',') === dayIds.join(','));
+// 一局打完按局结算（一次写入；只有今天的任务会被记进度）
+Daily.flush(d, { win: true, kills: 200, merges: 30, recycled: 5, bossKills: 1 });
+Daily.flush(d, { win: true, kills: 0, merges: 0 }); // 第二局（"通关 2 局"这类任务需要）
 const stOf = (id) => Daily.state(d).find((t) => t.id === id);
-check('通关任务完成 1/1', stOf('clearRun').progress === 1 && stOf('clearRun').done === true);
-check('合成任务按局封顶 10/10', stOf('merge10').progress === 10);
-check('击杀任务记 40/60', stOf('kill60').progress === 40);
-check('可领取数 = 2（通关 + 合成）', Daily.claimableCount(d) === 2);
+check('所有玩法类任务都推进到上限（只有"看广告"那条自愿任务除外）',
+  Daily.state(d).every((t) => (t.id === 'adOne' ? t.progress === 0 : t.done === true)));
+check('进度不会超过需求（封顶）', Daily.state(d).every((t) => t.progress <= t.need));
+const claimableNow = Daily.claimableCount(d);
+check(`可领取数 = 今天已完成的任务数（${claimableNow}）`,
+  claimableNow === dayIds.filter((id) => id !== 'adOne').length);
+const firstTask = Daily.state(d).find((t) => t.done && !t.claimed);
 const coinsBeforeClaim = d.meta.coins;
-check('领取返回奖励金币', Daily.claim(d, 'clearRun') === CFG.DAILY_TASKS[0].coins);
-check('奖励金币到账', d.meta.coins === coinsBeforeClaim + CFG.DAILY_TASKS[0].coins);
-check('同一个任务不能重复领', Daily.claim(d, 'clearRun') === 0);
-check('没完成的任务领不到', Daily.claim(d, 'kill60') === 0);
+check('领取返回该任务的奖励金币', Daily.claim(d, firstTask.id) === firstTask.coins);
+check('奖励金币到账', d.meta.coins === coinsBeforeClaim + firstTask.coins);
+check('同一个任务不能重复领', Daily.claim(d, firstTask.id) === 0);
+check('不存在的任务领不到', Daily.claim(d, 'notATask') === 0);
 const coinsBeforeFree = d.meta.coins;
 check(`免费宝箱给 ${CFG.FREE_CHEST_COINS} 金币（不用看广告）`, Daily.takeFreeChest(d) === CFG.FREE_CHEST_COINS);
 check('免费宝箱到账且每天只能领一次', d.meta.coins === coinsBeforeFree + CFG.FREE_CHEST_COINS &&
@@ -622,13 +634,14 @@ step(0.1);
 check('打开每日任务面板', app.home.panel === 'daily');
 check('面板画出了任务名与免费宝箱', H.hasText('今天先摸一局') && H.hasText('每日免费宝箱'));
 check('未完成的任务没有领取按钮', app.home.rects.claims.length === 0);
-Daily.flush(d, { win: true, kills: 0, merges: 0 });
+Daily.flush(d, { win: true, kills: 200, merges: 30, recycled: 5, bossKills: 1 });
 step(0.05);
 const claimBtn = app.home.rects.claims[0];
 check('完成后出现领取按钮', !!claimBtn);
+const uiTask = claimBtn ? Daily.state(d).find((t) => t.id === claimBtn.id) : null;
 const coinsBeforeUi = d.meta.coins;
 if (claimBtn) { tap(claimBtn.x + claimBtn.w / 2, claimBtn.y + claimBtn.h / 2); step(0.05); }
-check('点领取按钮奖励到账', d.meta.coins === coinsBeforeUi + CFG.DAILY_TASKS[0].coins);
+check('点领取按钮奖励到账', !!uiTask && d.meta.coins === coinsBeforeUi + uiTask.coins);
 const fcBtn = app.home.rects.freeChest;
 const coinsBeforeFc = d.meta.coins;
 if (fcBtn) { tap(fcBtn.x + fcBtn.w / 2, fcBtn.y + fcBtn.h / 2); step(0.05); }
@@ -638,8 +651,10 @@ tap(dClose.x + dClose.w / 2, dClose.y + dClose.h / 2);
 step(0.05);
 check('关闭每日任务面板', app.home.panel === null);
 // 集成：真的在战斗里合成，并且走真实结算路径，进度才会进每日任务
-d.meta.daily = null;
+// （显式指定今天的任务集，断言就不受"今天是哪 3 个任务"影响）
+d.meta.daily = { date: Daily.today(), taskIds: ['clearRun', 'merge10', 'kill60'], progress: {}, claimed: [], freeChest: false };
 Daily.ensure(d);
+check('测试用任务集已生效', Daily.todaysTasks(d).map((t) => t.id).join(',') === 'clearRun,merge10,kill60');
 d.meta.bestLevel = 1;
 tap(187.5, 320);
 step(0.2);
@@ -650,13 +665,14 @@ const m5 = cellRect(5);
 H.drag({ x: m0.x + m0.w / 2, y: m0.y + m0.h / 2 }, { x: m5.x + m5.w / 2, y: m5.y + m5.h / 2 });
 step(0.05);
 check('局内合成计数 +1', b12.merges === 1);
-check('合成后每日任务进度还没结算（要等一局结束）', stOf('merge10').progress === 0);
+check('合成后每日任务进度还没结算（要等一局结束）',
+  Daily.state(d).every((t) => t.progress === 0));
 d.debug.damageBase(99999);
 step(0.1);
 const giveUp3 = b12.modal && b12.modal.type === 'revive' ? center(b12.modal.rects.giveup) : null;
 if (giveUp3) { tap(giveUp3.x, giveUp3.y); step(0.1); }
-check('真实结算路径把局内进度写进了每日任务', stOf('merge10').progress === 1);
-check('失败不算通关任务', stOf('clearRun').progress === 0);
+check('真实结算路径把局内进度写进了每日任务（合成 1 次）', stOf('merge10').progress === 1);
+check('失败不算通关任务', stOf('clearRun').progress === 0 && stOf('kill60').progress === 0);
 
 // ---------- 20. 成就与图鉴 ----------
 console.log('\n[20] 成就与图鉴');
@@ -1224,6 +1240,58 @@ const rankCloseBtn = app.home.rects.rankClose;
 touch('start', rankCloseBtn.x + rankCloseBtn.w / 2, rankCloseBtn.y + rankCloseBtn.h / 2);
 step(0.05);
 check('关闭好友榜面板', app.home.panel === null);
+
+// ---------- 28. 每日任务池 + 连续登录 ----------
+console.log('\n[28] 任务池与连续登录');
+exitToHome();
+// 任务池：同一天固定、跨天变化、抽出的都来自池子且不重复
+const d1 = Daily.pickDailyTasks('2026-9-21');
+const d1b = Daily.pickDailyTasks('2026-9-21');
+const d2 = Daily.pickDailyTasks('2026-9-22');
+check(`同一天抽到的任务固定（${d1.map((t) => t.id).join('/')}）`,
+  d1.map((t) => t.id).join(',') === d1b.map((t) => t.id).join(','));
+check('抽出的任务数正确且互不重复',
+  d1.length === CFG.DAILY_TASKS_PER_DAY && new Set(d1.map((t) => t.id)).size === d1.length);
+check('都来自任务池', d1.every((t) => CFG.DAILY_POOL.some((x) => x.id === t.id)));
+check('跨天会换一组（池子比每天的数量大，才不至于第 3 天就腻）',
+  CFG.DAILY_POOL.length > CFG.DAILY_TASKS_PER_DAY &&
+  d1.map((t) => t.id).join(',') !== d2.map((t) => t.id).join(','));
+// 连续登录：连续累加、断档重来、里程碑只发一次
+let st = Daily.advanceStreak(null, '2026-9-21', CFG.STREAK_REWARDS);
+check('第一天登录：连续 1 天且无奖励', st.streak.days === 1 && st.reward === 0);
+st = Daily.advanceStreak(st.streak, '2026-9-21', CFG.STREAK_REWARDS);
+check('同一天重复登录不重复累加', st.streak.days === 1 && st.reward === 0);
+st = Daily.advanceStreak(st.streak, '2026-9-22', CFG.STREAK_REWARDS);
+st = Daily.advanceStreak(st.streak, '2026-9-23', CFG.STREAK_REWARDS);
+check(`连续第 3 天触发里程碑奖励 +${CFG.STREAK_REWARDS[3]}`,
+  st.streak.days === 3 && st.reward === CFG.STREAK_REWARDS[3] && st.milestone === 3);
+let st2 = Daily.advanceStreak(st.streak, '2026-9-24', CFG.STREAK_REWARDS);
+check('里程碑只发一次（第 4 天不再发）', st2.reward === 0 && st2.streak.days === 4);
+let st3 = Daily.advanceStreak(st2.streak, '2026-9-30', CFG.STREAK_REWARDS);
+check('断档一天以上就重新从 1 开始', st3.streak.days === 1 && st3.reward === 0);
+let st4 = st3.streak; // 2026-9-30，days=1
+['2026-10-1', '2026-10-2', '2026-10-3', '2026-10-4', '2026-10-5'].forEach((dt) => {
+  st4 = Daily.advanceStreak(st4, dt, CFG.STREAK_REWARDS).streak; // 连续到第 6 天
+});
+const st7 = Daily.advanceStreak(st4, '2026-10-6', CFG.STREAK_REWARDS);
+check(`连续第 7 天触发里程碑奖励 +${CFG.STREAK_REWARDS[7]}`,
+  st7.streak.days === 7 && st7.reward === CFG.STREAK_REWARDS[7]);
+// 跨天时 ensure 会自动结算（走真实入口）
+d.meta.streak = { last: '2026-1-1', days: 2, claimed: [1, 2] };
+d.meta.daily = { date: '2026-1-1', taskIds: ['clearRun'], progress: {}, claimed: [], freeChest: false };
+const coinsBeforeStreak = d.meta.coins;
+const dl28 = Daily.ensure(d); // 日期与今天不同 → 重置 + 推进连续登录
+check('跨天时自动重置今日任务并结算连续登录', dl28.date === Daily.today() && d.meta.streak.days === 1);
+check('重置后今天的任务来自池子', Daily.todaysTasks(d).every((t) => CFG.DAILY_POOL.some((x) => x.id === t.id)));
+check('连续登录只是从 1 重来（断档不发奖）', d.meta.coins === coinsBeforeStreak);
+// 广告任务只在自愿看广告后推进（走真实钩子）
+d.meta.daily = { date: Daily.today(), taskIds: ['adOne', 'clearRun', 'clear2'], progress: {}, claimed: [], freeChest: false };
+Daily.ensure(d);
+check('广告任务初始为 0', Daily.state(d).find((t) => t.id === 'adOne').progress === 0);
+app.adService.onAnyReward('double');
+app.adService.onAnyReward('chest');
+check('看完广告推进"自愿看广告"任务（且封顶 1）',
+  Daily.state(d).find((t) => t.id === 'adOne').progress === 1);
 
 // ---------- 结果 ----------
   console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

@@ -473,14 +473,23 @@ class Home {
 
     const px = (W - 330) / 2;
     const py = 88;
-    U.drawPanel(ctx, px, py, 330, 420, 16, '#ffffff');
+    U.drawPanel(ctx, px, py, 330, 460, 16, '#ffffff');
     U.drawText(ctx, '📋 每日任务', W / 2, py + 34, 19, '#333333', 'center', 'bold');
     const doneCount = Daily.state(d).filter((t) => t.claimed).length;
-    U.drawText(ctx, `今天已领 ${doneCount} / ${C.DAILY_TASKS.length} 个奖励 · 每天 0 点刷新`, W / 2, py + 58, 11, '#999999');
+    const streak = (d.meta.streak && d.meta.streak.days) || 1;
+    const nextMilestone = Object.keys(C.STREAK_REWARDS).map(Number).sort((a, b) => a - b).find((k) => k > streak);
+    const streakText = nextMilestone
+      ? `🔥 连续登录 ${streak} 天 · 再登 ${nextMilestone - streak} 天得 ${C.STREAK_REWARDS[nextMilestone]}🪙`
+      : `🔥 连续登录 ${streak} 天 · 里程碑已全部领取`;
+    U.drawText(ctx, `今天已领 ${doneCount} / ${Daily.todaysTasks(d).length} 个奖励 · 每天 0 点刷新`, W / 2, py + 58, 11, '#999999');
 
+    U.drawText(ctx, streakText, W / 2, py + 74, 11, '#e8a33d', 'center');
+    if (d.meta.daily && d.meta.daily.streakReward) {
+      U.drawText(ctx, `🎉 连续登录奖励 +${d.meta.daily.streakReward.coins} 🪙 已到账`, W / 2, py + 90, 11, '#3aa76d', 'center', 'bold');
+    }
     this.rects.claims = [];
     Daily.state(d).forEach((t, i) => {
-      const y = py + 80 + i * 74;
+      const y = py + 104 + i * 74;
       U.drawPanel(ctx, px + 14, y, 302, 64, 12, t.done && t.claimed ? '#f0f0f0' : '#f7f4ec');
       U.drawText(ctx, t.name, px + 28, y + 22, 13, '#333333', 'left', 'bold');
       U.drawText(ctx, `奖励 🪙 ${t.coins}`, px + 28, y + 44, 11, '#b8860b', 'left');
@@ -511,7 +520,7 @@ class Home {
 
     // 每日免费宝箱（不看广告）
     const left = Daily.freeChestLeft(d);
-    const cr = { x: px + 14, y: py + 302, w: 302, h: 52 };
+    const cr = { x: px + 14, y: py + 326, w: 302, h: 52 };
     U.drawPanel(ctx, cr.x, cr.y, cr.w, cr.h, 12, left > 0 ? '#e8a33d' : '#f0f0f0');
     U.drawText(ctx, left > 0 ? `🎁 每日免费宝箱：+${C.FREE_CHEST_COINS} 🪙（不用看广告）` : '🎁 今天的免费宝箱已领，明天再来',
       W / 2, cr.y + 26, 13, left > 0 ? '#ffffff' : '#999999', 'center', 'bold');

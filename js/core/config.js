@@ -242,12 +242,22 @@ const UPGRADES = {
 const UPGRADE_COST = (tier) => Math.round(60 * Math.pow(1.85, tier)); // tier 从 0 计：60/111/205/379/701，三线合计 4368
 
 // ---------- 每日任务与免费宝箱 ----------
-// 隔天回来的最短回路：3 个任务覆盖"打一局 / 合成 / 击杀"，全部由玩法推进（不逼看广告）
-const DAILY_TASKS = [
-  { id: 'clearRun', name: '今天先摸一局（通关任意关卡）', need: 1, coins: 60 },
-  { id: 'merge10',  name: '合成 10 次装备',              need: 10, coins: 80 },
-  { id: 'kill60',   name: '击退 60 个需求',              need: 60, coins: 80 },
+// 每日任务池：每天从中抽 3 个（按日期确定，同一天进游戏看到的任务固定）。
+// 池子大一点才不至于"第 3 天就腻"；全部由玩法推进，只有一个可选任务需要自愿看广告
+const DAILY_POOL = [
+  { id: 'clearRun', name: '今天先摸一局（通关任意关卡）', need: 1,   coins: 60 },
+  { id: 'merge10',  name: '合成 10 次装备',              need: 10,  coins: 80 },
+  { id: 'kill60',   name: '击退 60 个需求',              need: 60,  coins: 80 },
+  { id: 'clear2',   name: '通关 2 局',                   need: 2,   coins: 100 },
+  { id: 'merge25',  name: '合成 25 次装备',              need: 25,  coins: 110 },
+  { id: 'kill150',  name: '击退 150 个需求',             need: 150, coins: 120 },
+  { id: 'recycle5', name: '回收 5 件用不上的装备',        need: 5,   coins: 90 },
+  { id: 'bossOne',  name: '打死 1 个 Boss',              need: 1,   coins: 130 },
+  { id: 'adOne',    name: '看完 1 次激励视频（自愿）',     need: 1,   coins: 90 },
 ];
+const DAILY_TASKS_PER_DAY = 3;
+// 连续登录奖励：跨天登录会自动结算（第 3 天 / 第 7 天各一次）
+const STREAK_REWARDS = { 3: 150, 7: 400 };
 const FREE_CHEST_COINS = 120;  // 每日免费宝箱（每天 1 次，不看广告）
 
 // ---------- 成就 ----------
@@ -301,7 +311,7 @@ module.exports = {
   SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR, MASTERY_COINS,
   UPGRADES, UPGRADE_COST,
   AD_UNIT_ID, CHEST_PER_DAY, REROLL_PER_RUN,
-  DAILY_TASKS, FREE_CHEST_COINS, ACHIEVEMENTS,
+  DAILY_POOL, DAILY_TASKS_PER_DAY, STREAK_REWARDS, FREE_CHEST_COINS, ACHIEVEMENTS,
   expNeed,
   SPEED_STEPS,
   calcScore,

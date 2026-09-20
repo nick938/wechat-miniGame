@@ -9,6 +9,7 @@ const AdService = require('./services/ads');
 const Share = require('./services/share');
 const Monitor = require('./services/monitor');
 const Ach = require('./systems/achievements');
+const Daily = require('./systems/daily');
 const Home = require('./ui/home');
 const Battle = require('./ui/battle');
 
@@ -24,8 +25,11 @@ class App {
     this.audio.setEnabled(databus.meta.soundOn);
 
     this.adService = new AdService();
-    // 每次看完激励视频（任何位置）都计入长期统计，成就「广告鉴赏家」用
-    this.adService.onAnyReward = () => Ach.countAd(databus);
+    // 每次看完激励视频（任何位置）都计入长期统计（成就「广告鉴赏家」）与每日任务（"自愿看一次广告"）
+    this.adService.onAnyReward = () => {
+      Ach.countAd(databus);
+      Daily.countAd(databus);
+    };
     GameGlobal.adService = this.adService;
 
     this.home = new Home(this);
