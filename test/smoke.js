@@ -368,6 +368,9 @@ check(`${CHAIN} 个敌人全部结算入账`, b6.kills - killsBeforeChain === CH
 // ---------- 14. 技能全满级兜底（回归：不能让三选一弹层没有可选卡把玩家卡死） ----------
 console.log('\n[14] 技能全满级兜底');
 const b7 = d.battle;
+// 上一节连锁击杀会攒下升级：先排空弹层，否则这里看到的是旧弹层（选项是旧的、卡片也不是兜底卡）
+drainLevelups();
+check('上一节的升级已排空（本节前提）', b7.modal === null);
 CFG.SKILLS.forEach((s) => {
   const owned = b7.skills.find((k) => k.id === s.id);
   if (owned) owned.stacks = s.max;
@@ -377,6 +380,7 @@ d.debug.addExp(400);
 step(0.1);
 check('全满级后三选一仍有卡可选', b7.modal && b7.modal.type === 'levelup' &&
   b7.modal.options.length >= 1 && !!b7.modal.rects.cards[0]);
+check('此时弹层给的就是兜底卡', b7.modal && b7.modal.options.length === 1 && b7.modal.options[0].id === 'mastery');
 const coinsBeforeMastery = b7.coins;
 const masteryCard = b7.modal && b7.modal.rects.cards[0];
 if (masteryCard) { // 没有卡时（旧代码）不要去点，否则测试会崩在中途、后面的断言跑不到
@@ -457,6 +461,84 @@ check('进入失败结算', b8.modal && b8.modal.type === 'result' && b8.modal.w
 check('结算面板画出了"谁啃掉最后一滴血"', H.hasText('啃掉了最后一点血'));
 check('结算面板画出了"撑到多久/还剩几只"', H.hasText('场上还剩'));
 check('结算面板画出了改进建议', H.hasText(CFG.lossTip(b8)));
+
+// ---------- 17. 机制技能真的改变打法（暴击 / 冰缓 / 回血） ----------
+console.log('\n[17] 机制技能生效');
+// 从 [16] 的失败结算回首页，再开一局干净的战斗
+const backHome = center(b8.modal.rects.home);
+tap(backHome.x, backHome.y);
+step(0.1);
+d.meta.bestLevel = 1;
+tap(187.5, 320);
+step(0.2);
+const b9 = d.battle;
+check('新局开始（用于机制测试）', d.scene === 'battle' && b9.board.cells.filter(Boolean).length === 3);
+b9.enemies.length = 0;
+app.battle.spawnEnemy('request');
+const target = b9.enemies[0];
+target.hpMax = target.hp = 1e6;
+
+// 暴击：100% 时一次命中打三倍
+b9.mods.crit = 0;
+let hp0 = target.hp;
+app.battle.damageEnemy(target, 10, false);
+check('无暴击时伤害就是 10', hp0 - target.hp === 10);
+b9.mods.crit = 1;
+hp0 = target.hp;
+app.battle.damageEnemy(target, 10, false);
+check('暴击时一次命中打 30（三倍）', hp0 - target.hp === 30);
+// 50% 概率：200 次命中的平均伤害应接近 2 倍（种子固定 ⇒ 可复现）
+b9.mods.crit = 0.5;
+hp0 = target.hp;
+for (let i = 0; i < 200; i++) app.battle.damageEnemy(target, 10, false);
+const avg = (hp0 - target.hp) / 200;
+check(`50% 暴击的平均伤害落在 2 倍附近（实测 ${(avg / 10).toFixed(2)}x，期望 1.6-2.4x）`,
+  avg > 16 && avg < 24);
+
+// 冰缓：命中即减速，实测移动距离变短
+b9.mods.chill = 0.25;
+app.battle.damageEnemy(target, 1, false);
+check('命中后敌人进入冰缓', target.chillT > 0 && target.chillMul === 0.75);
+b9.enemies.length = 0;
+app.battle.spawnEnemy('request');
+app.battle.spawnEnemy('request');
+const slowOne = b9.enemies[0];
+const fastOne = b9.enemies[1];
+slowOne.y = fastOne.y = 0;
+slowOne.x = fastOne.x = 100;
+slowOne.baseX = fastOne.baseX = 100;
+slowOne.chillT = 5;
+slowOne.chillMul = 0.5;
+step(0.5);
+check('被冰缓的敌人确实走得慢', slowOne.y < fastOne.y * 0.75);
+
+// 回血：击杀回血且不超过上限
+b9.mods.lifesteal = 2;
+b9.baseHp = b9.baseHpMax - 5;
+const beforeHeal = b9.baseHp;
+b9.enemies.length = 0;
+app.battle.spawnEnemy('bug');
+const victim = b9.enemies[0];
+victim.hp = 1;
+b9.mods.lifesteal = 2;
+app.battle.damageEnemy(victim, 5, false);
+step(1 / 60);
+check('击杀回血 +2', b9.baseHp === beforeHeal + 2);
+b9.baseHp = b9.baseHpMax;
+b9.enemies.length = 0;
+app.battle.spawnEnemy('bug');
+const victim2 = b9.enemies[0];
+victim2.hp = 1;
+app.battle.damageEnemy(victim2, 5, false);
+step(1 / 60);
+check('回血不会超过生命上限', b9.baseHp === b9.baseHpMax);
+// 三个机制技能都已挂到 mods 上（选了就生效，不是摆设）
+check('三个机制技能都在配置里且能改 mods', (() => {
+  const ids = ['crit', 'chill', 'lifesteal'];
+  if (!ids.every((id) => CFG.SKILLS.some((s) => s.id === id))) return false;
+  ids.forEach((id) => Skills.apply(b9, CFG.SKILLS.find((s) => s.id === id)));
+  return b9.mods.crit > 0 && b9.mods.chill > 0 && b9.mods.lifesteal > 0;
+})());
 
 // ---------- 结果 ----------
 console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

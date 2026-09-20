@@ -88,6 +88,7 @@ const SKILL_VALUE = {
   mute: 0.8, slowNet: 0.8, toiletBreak: 0.7, leave: 1.1, annualLeave: 0.9,
   shield: 0.9, refill: 0.8, postpone: 0.7, layoff: 0.9,
   overtimePay: 0.5, fishology: 0.5,
+  crit: 1.35, chill: 1.0, lifesteal: 1.15,           // P2 机制技能：会改打法，优先拿
 };
 const DEFENSIVE = ['mute', 'slowNet', 'toiletBreak', 'shield', 'annualLeave'];
 
@@ -112,8 +113,14 @@ const M = {
   runsToMaxUpgrade: [],
   totalFrames: 0,
   mergeDone: 0, mergeSkipped: 0,                    // 机器人「看到可合成却没动手」的次数
+  builds: {},                                       // build 签名（本局点到的所有技能）→ 次数
+  picked: {},                                       // 每个技能被点到的总次数
+  mechanicRuns: 0, mechanicPicks: 0,                // 点到"机制类"技能（改打法，不是纯数值）的局数/次数
   stuck: [],                                        // 触到帧上限仍未结束的 session（诊断卡死）
 };
+
+// 机制类技能：不是"数值 +x%"，而是改变这一局怎么打
+const MECHANIC_IDS = ['crit', 'chill', 'lifesteal', 'refill', 'layoff', 'shield', 'annualLeave'];
 
 // ---------- 机器人 ----------
 class Bot {
@@ -131,6 +138,7 @@ class Bot {
       level: b.level,
       battle: b,                                    // 战斗实例：换关（next 直接开下一关）时用它切分「一局」
       mergeBase: H.countEvents('weapon_merge'),
+      startEventIdx: H.events.length,                // 本局埋点起点（用于统计本局点了哪些技能）
       merges: 0, levelups: 0, supplyDropped: 0, supplyLost: 0,
       firstKill: 0, firstMerge: 0, firstLevelup: 0,
       deadStreak: 0, deadMax: 0,
@@ -204,6 +212,22 @@ class Bot {
       if (st.result === 'lose') {
         if (b.timeLeft <= 0) M.deathsTimeout++; else M.deathsChewed++;
       }
+      // build 原型：只看"会改变打法"的技能（机制类 + 紫/橙品质），纯数值叠加不参与签名，
+      // 否则每局的组合都独一无二，占比永远是 0%，看不出"是不是每局都一个样"
+      const picks = [];
+      for (let k = st.startEventIdx; k < H.events.length; k++) {
+        const ev = H.events[k];
+        if (ev.ev === 'skill_pick' && ev.params && ev.params.id !== 'mastery') picks.push(ev.params.id);
+      }
+      const key = picks.filter((id) => {
+        if (MECHANIC_IDS.indexOf(id) >= 0) return true;
+        const cfg = C.SKILLS.find((s) => s.id === id);
+        return cfg && cfg.rarity >= 3;
+      }).sort();
+      const sig = key.length ? key.join('+') : '(纯数值流)';
+      bump(M.builds, sig.length > 60 ? sig.slice(0, 60) + '…' : sig);
+      picks.forEach((id) => { bump(M.picked, id); if (MECHANIC_IDS.indexOf(id) >= 0) M.mechanicPicks++; });
+      if (picks.some((id) => MECHANIC_IDS.indexOf(id) >= 0)) M.mechanicRuns++;
     }
     if (!isResult) st.resultModalOpen = false;
     M.peak.enemies = Math.max(M.peak.enemies, b.enemies.length);
@@ -555,6 +579,13 @@ function main() {
   push(`【行为·每局】合成 ${median(M.merges)}  三选一 ${median(M.levelups)}  补给投放 ${median(M.supplyDropped)}  补给丢弃 ${median(M.supplyLost)}  机器人漏看可合成 ${M.mergeSkipped} 次/动手 ${M.mergeDone} 次`);
   push(`【挫败】满盘帧占比 ${pct(M.fullFrames, M.battleFrames)}%  真死局帧占比 ${pct(M.deadlockFrames, M.battleFrames)}%  死局次数 ${M.deadlockEvents}  最长死局 ${(M.deadlockMaxStreak / 60).toFixed(1)}s`);
   push(`【回收】(P1 新增) 回收件数 ${H.countEvents('weapon_recycle')}  棋盘满事件 ${H.countEvents('board_full')}  空投丢弃/场 ${median(M.supplyLost)}`);
+  // build 多样性：同一套 build 出现得越多，说明"每局都一个样"
+  const buildList = Object.keys(M.builds).map((k) => ({ k, n: M.builds[k] })).sort((a, c) => c.n - a.n);
+  const topBuildShare = buildList.length ? Math.round((buildList[0].n / M.runs) * 100) : 0;
+  const pickList = Object.keys(M.picked).map((k) => ({ k, n: M.picked[k] })).sort((a, c) => c.n - a.n);
+  push(`【build】(P2 新增) 不同打法原型 ${buildList.length} 种 / ${M.runs} 局  最热原型占比 ${topBuildShare}%  点到机制技能的局数占比 ${Math.round((M.mechanicRuns / Math.max(1, M.runs)) * 100)}%`);
+  push(`【原型 top5】${buildList.slice(0, 5).map((x) => `${x.k}×${x.n}`).join('  ')}`);
+  push(`【技能热度 top6】${pickList.slice(0, 6).map((p) => `${p.k}:${p.n}`).join('  ')}`);
   push(`【经济】每局金币中位 ${median(M.coins)}  三线满级所需局数 ${M.runsToMaxUpgrade.length ? M.runsToMaxUpgrade.join('/') : '未达成'}（按每局金币估算 ${Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))} 局，升级总价 ${totalUpgradeCost()}）`);
   push(`【广告·潜机会/单场】${JSON.stringify(M.adOpportunities)} 合计 ${(adOpp / sess).toFixed(2)}/局，${(adOpp / Math.max(1, M.runs)).toFixed(2)}/单场`);
   push(`【广告·实际看/单场】${JSON.stringify(M.adShows)} 合计 ${(adShowTotal / sess).toFixed(2)}/局，${(adShowTotal / Math.max(1, M.runs)).toFixed(2)}/单场`);
@@ -612,6 +643,10 @@ function main() {
       medianSupplyLost: median(M.supplyLost),
       recycledTotal: H.countEvents('weapon_recycle'),
       boardFullEvents: H.countEvents('board_full'),
+      buildCount: buildList.length,
+      topBuildSharePct: topBuildShare,
+      mechanicRunSharePct: Math.round((M.mechanicRuns / Math.max(1, M.runs)) * 100),
+      topSkills: pickList.slice(0, 8),
       runsToMaxUpgrade: M.runsToMaxUpgrade,
       runsToMaxUpgradeEstimated: Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins))),
       upgradeTotalCost: totalUpgradeCost(),

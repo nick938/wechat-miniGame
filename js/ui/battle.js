@@ -108,11 +108,28 @@ class BattleScene {
   }
 
   damageEnemy(e, dmg, showNum = true) {
-    e.takeDamage(dmg);
+    const b = this.b;
+    const mods = b.mods;
+    let d = dmg;
+    let crit = false;
+    // 手气不错：命中概率暴击（打谁都算，爆炸也会暴击）
+    if (mods.crit > 0 && Math.random() < mods.crit) {
+      d *= 3;
+      crit = true;
+    }
+    e.takeDamage(d);
+    // 冷处理：命中即冰缓（持续时间内敌人走得慢，宽面武器收益更高）
+    if (mods.chill > 0) {
+      e.chillT = 1.5;
+      e.chillMul = 1 - mods.chill;
+    }
     // 伤害飘字（耳机持续音免展示；特效池过载时丢弃保帧率）
     if (showNum && this.b.fxs.length < 40) {
       this.addFx('text', e.x + U.rand(-10, 10), e.y - e.r - 6, {
-        text: String(Math.round(dmg)), color: '#ffffff', size: 10, life: 0.45,
+        text: crit ? `${Math.round(d)}!` : String(Math.round(d)),
+        color: crit ? '#ffd166' : '#ffffff',
+        size: crit ? 14 : 10,
+        life: crit ? 0.55 : 0.45,
       });
     }
   }
@@ -147,6 +164,10 @@ class BattleScene {
     // 优化毕业：击杀引爆周围
     if (b.mods.killExplode > 0 && Math.random() < b.mods.killExplode) {
       this.explodeAt(e.x, e.y, Math.round(e.hpMax * 0.3), 70);
+    }
+    // 摸鱼回血：击杀回一点工位血（配合清场快的 build 才能续航）
+    if (b.mods.lifesteal > 0 && b.baseHp < b.baseHpMax) {
+      b.baseHp = Math.min(b.baseHpMax, b.baseHp + b.mods.lifesteal);
     }
     if (e.boss) {
       b.bossRef = null;

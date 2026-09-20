@@ -73,6 +73,9 @@ function apply(battle, skill) {
       });
       break;
     case 'layoff': m.killExplode = 0.15; break;
+    case 'crit': m.crit += 0.20; break;
+    case 'chill': m.chill = Math.min(0.5, m.chill + 0.25); break;
+    case 'lifesteal': m.lifesteal += 1; break;
     case 'annualLeave':
       battle.baseHpMax += 50;
       battle.baseHp = battle.baseHpMax;

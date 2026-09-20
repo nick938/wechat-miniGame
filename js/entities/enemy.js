@@ -44,6 +44,8 @@ class Enemy {
     this.attacking = false;
     this.attackAnim = 0;
     this.lastOrbHit = 0;
+    this.chillT = 0;      // 冷处理：剩余冰缓时间
+    this.chillMul = 1;    // 冰缓时的速度倍率
     // Boss 专属
     this.summonTimer = 4;
     this.enraged = false;
@@ -51,8 +53,10 @@ class Enemy {
 
   update(dt, battle) {
     const mods = battle.mods;
+    if (this.chillT > 0) this.chillT -= dt;
     if (!this.attacking) {
-      this.y += this.speed * dt;
+      const spd = this.speed * (this.chillT > 0 ? this.chillMul : 1);
+      this.y += spd * dt;
       this.x = this.baseX + Math.sin(battle.time * 1.5 + this.phase) * this.sway;
       this.x = U.clamp(this.x, 16, C.DESIGN_W - 16);
       if (this.y >= C.BASE_Y - this.r * 0.3) {
@@ -94,6 +98,9 @@ class Enemy {
   render(ctx, time) {
     const shake = this.attacking ? Math.sin(time * 30 + this.id) * 2 : 0;
     U.drawEmoji(ctx, this.cfg.emoji, this.x + shake, this.y, this.boss ? 52 : this.r * 2.2);
+    if (this.chillT > 0) {
+      U.drawText(ctx, '❄', this.x + this.r + shake, this.y - this.r - 2, 11, '#7ec8ff');
+    }
 
     // 血条（受伤后显示；Boss 由战场画大血条）
     if (!this.boss && this.hp < this.hpMax) {

@@ -121,6 +121,9 @@ class Databus {
         pierce: 0,
         spawnGapMul: 1,
         killExplode: 0,
+        crit: 0,          // 暴击概率（手气不错）
+        chill: 0,         // 命中减速强度（冷处理）
+        lifesteal: 0,     // 击杀回血（摸鱼回血）
       },
     };
     this.battle.baseHp = this.battle.baseHpMax;

@@ -155,6 +155,10 @@ const SKILLS = [
   { id: 'leave',        name: '老板今天请假', rarity: 4, max: 1, desc: '所有敌人生命 -30%' },
   { id: 'layoff',       name: '优化毕业',     rarity: 4, max: 1, desc: '击杀时 15% 概率引爆周围敌人' },
   { id: 'annualLeave',  name: '带薪年假',     rarity: 4, max: 1, desc: '生命上限 +50 并回满' },
+  // 会改变打法的机制技能：让"选什么"真的影响这一局怎么玩，而不只是数值变大
+  { id: 'crit',         name: '手气不错',     rarity: 3, max: 2, desc: '每次命中 20% 概率造成三倍伤害' },
+  { id: 'chill',        name: '冷处理',       rarity: 2, max: 2, desc: '命中让敌人减速 25%，持续 1.5 秒' },
+  { id: 'lifesteal',    name: '摸鱼回血',     rarity: 2, max: 2, desc: '每次击杀回复 1 点工位生命' },
 ];
 const RARITY_WEIGHT = { 1: 55, 2: 30, 3: 12, 4: 3 };
 const RARITY_NAME = { 1: '白', 2: '蓝', 3: '紫', 4: '橙' };
