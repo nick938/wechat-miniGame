@@ -235,6 +235,21 @@ class BattleScene {
         this.spawnEnemy(this.spawnQueue.pop());
       }
 
+      // Boss 前预警：让玩家有时间整理棋盘（合成/回收），而不是被突然查岗打死
+      const bossAt = b.cfg.bossAt;
+      if (bossAt && b.time < bossAt) {
+        const left = bossAt - b.time;
+        if (left <= C.BOSS_WARN_SEC) {
+          b.bossWarn = Math.ceil(left);
+          if (!b.bossWarned) {
+            b.bossWarned = true;
+            track('boss_warning', { level: b.level, sec: Math.round(left) });
+          }
+        }
+      } else if (b.bossWarn) {
+        b.bossWarn = 0;                             // Boss 已出场：撤掉预警
+      }
+
       // 补给投放
       b.supplyTimer -= dt;
       if (b.supplyTimer <= 0) {
@@ -487,6 +502,7 @@ class BattleScene {
     this.renderHud(ctx);
     if (b.bossRef) this.renderBossBar(ctx);
     this.renderTutorial(ctx);
+    this.renderBossWarn(ctx);
     this.renderHint(ctx);
 
     if (b.modal) {
@@ -614,6 +630,16 @@ class BattleScene {
     U.drawPanel(ctx, W / 2 - 154, y, 308, 36, 18, 'rgba(232,163,61,0.95)');
     U.drawText(ctx, h.text, W / 2, y + 18, 13, '#ffffff', 'center', 'bold');
     ctx.globalAlpha = 1;
+  }
+
+  // Boss 前预警：红色倒计时，提醒玩家把棋盘收拾好（合成/回收）
+  renderBossWarn(ctx) {
+    const b = this.b;
+    if (!b.bossWarn || b.bossWarn <= 0) return;
+    const W = C.DESIGN_W;
+    const y = C.HUD_H + 40;
+    U.drawPanel(ctx, W / 2 - 150, y, 300, 34, 17, 'rgba(255,77,77,0.92)');
+    U.drawText(ctx, `⚠️ ${b.bossWarn} 秒后老板来查岗！整理棋盘`, W / 2, y + 17, 13, '#ffffff', 'center', 'bold');
   }
 
   renderTutorial(ctx) {

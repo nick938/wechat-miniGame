@@ -91,6 +91,8 @@ class Databus {
       lastHitBy: '',        // 最近一次啃到工位的敌人类型（失败复盘用）
       recycled: 0,          // 本局回收装备件数
       hint: null,           // 战场提示条 {text, t}
+      bossWarn: 0,          // Boss 出场倒计时（秒，0 = 不显示）
+      bossWarned: false,    // 本轮预警是否已上报埋点
       skills: [],           // [{id, stacks}]
       enemies: [],
       projectiles: [],

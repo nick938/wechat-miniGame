@@ -80,6 +80,7 @@ const ENEMY_POOL_BY_LEVEL = [
 // ---------- 关卡 ----------
 const LEVEL_NAMES = ['周一早会', '临时需求', '改需求了', 'Bug大爆发', '老板巡查', '灰度发布', '年底冲KPI', '年终述职'];
 const BOSS_EVERY = 4;          // 每 4 关一个 Boss（第 4、8 关…）
+const BOSS_WARN_SEC = 8;       // Boss 出场前多少秒开始预警（给玩家整理棋盘的时间）
 // 补给间隔（秒）：合成是这游戏的主操作，间隔太大就会"每局只合 6 次"（基线实测），
 // 9 秒一投 ⇒ 每局到手约 24 件，合成次数才够（目标 15 次/场），棋盘也才会真的挤起来，
 // 让"回收换金币"和"棋盘满了"的提示有存在意义
@@ -117,6 +118,7 @@ function buildLevel(n) {
     hpMul,
     spMul,
     isBoss,
+    bossAt: isBoss ? duration - 50 : 0,   // Boss 出场秒数（前预警用）
     events,
   };
 }
@@ -210,7 +212,7 @@ const calcScore = (b) => Math.max(0, Math.round(
 module.exports = {
   DESIGN_W, DESIGN_H, HUD_H, BASE_Y, BOARD_CELL, BOARD_GAP, BOARD_COLS, BOARD_ROWS, BOARD_X0, BOARD_Y0,
   WEAPONS, WEAPON_TYPES, MAX_WEAPON_LV,
-  ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_NAMES, BOSS_EVERY, SUPPLY_INTERVAL, BASE_HP,
+  ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_NAMES, BOSS_EVERY, BOSS_WARN_SEC, SUPPLY_INTERVAL, BASE_HP,
   RECYCLE_RECT, recycleCoins, HINT_SEC,
   lossTip,
   buildLevel,

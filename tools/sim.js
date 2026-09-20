@@ -22,7 +22,7 @@ const { cellRect } = require('../js/ui/board');
 // ---------- 参数 ----------
 const LABEL_RE = /^[a-z0-9_-]{1,32}$/i;
 function parseArgs(argv) {
-  const a = { tier: 'normal', players: 3, sessions: 8, seed: 1, maxLevel: 40, label: 'last', trace: false };
+  const a = { tier: 'normal', players: 3, sessions: 8, seed: 1, maxLevel: 40, label: 'last', trace: false, prefer: [] };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = argv[i + 1];
@@ -33,6 +33,7 @@ function parseArgs(argv) {
     else if (k === '--max-level') { a.maxLevel = parseInt(v, 10); i++; }
     else if (k === '--label') { a.label = LABEL_RE.test(String(v)) ? v : 'last'; i++; }
     else if (k === '--trace') { a.trace = true; }
+    else if (k === '--prefer') { a.prefer = String(v).split(',').filter(Boolean); i++; }
   }
   return a;
 }
@@ -87,7 +88,7 @@ const SKILL_VALUE = {
   autofish: 1.2, swiftHands: 1.2, efficiency: 1.3,
   mute: 0.8, slowNet: 0.8, toiletBreak: 0.7, leave: 1.1, annualLeave: 0.9,
   shield: 0.9, refill: 0.8, postpone: 0.7, layoff: 0.9,
-  overtimePay: 0.5, fishology: 0.5,
+  overtimePay: 0.85, fishology: 0.85,              // 金币/经验类：对局外成长有用，别让机器人一律无视（这是模型选择，不是强度结论）
   crit: 1.35, chill: 1.0, lifesteal: 1.15,           // P2 机制技能：会改打法，优先拿
 };
 const DEFENSIVE = ['mute', 'slowNet', 'toiletBreak', 'shield', 'annualLeave'];
@@ -115,6 +116,7 @@ const M = {
   mergeDone: 0, mergeSkipped: 0,                    // 机器人「看到可合成却没动手」的次数
   builds: {},                                       // build 签名（本局点到的所有技能）→ 次数
   picked: {},                                       // 每个技能被点到的总次数
+  offered: {},                                      // 每个技能出现在三选一里的次数（用于算被选率）
   mechanicRuns: 0, mechanicPicks: 0,                // 点到"机制类"技能（改打法，不是纯数值）的局数/次数
   stuck: [],                                        // 触到帧上限仍未结束的 session（诊断卡死）
 };
@@ -143,6 +145,7 @@ class Bot {
       firstKill: 0, firstMerge: 0, firstLevelup: 0,
       deadStreak: 0, deadMax: 0,
       levelupModalOpen: false, reviveModalOpen: false, resultModalOpen: false,
+      lastOfferSig: '',
       result: null, coins: 0, duration: 0,
       wrappedBoard: null,
     };
@@ -183,6 +186,15 @@ class Bot {
       if (!st.firstLevelup) st.firstLevelup = b.time;
       // 广告机会：每次弹出三选一只要还有刷新次数，就是一个可选点（上升沿计一次）
       if (b.modal.rects && b.modal.rects.reroll) bump(M.adOpportunities, 'reroll');
+    }
+    // 记下每一批「出现过的选项」：用签名比对，这样刷新后的新选项也算供给，
+    // 否则被选率会算出 >100%（刷出来的技能被选却不计供给）
+    if (isLevelup && b.modal.options && b.modal.options.length) {
+      const sig = b.modal.options.map((o) => o.id).join(',');
+      if (sig !== st.lastOfferSig) {
+        st.lastOfferSig = sig;
+        b.modal.options.forEach((o) => { if (o && o.id !== 'mastery') bump(M.offered, o.id); });
+      }
     }
     if (!isLevelup) st.levelupModalOpen = false;
 
@@ -405,6 +417,8 @@ class Bot {
 
   skillValue(s) {
     const b = d.battle;
+    // --prefer：对照实验用，把指定技能顶到最优先（仍然走真实的三选一弹层去点，不绕过玩法）
+    if (ARGS.prefer.length && ARGS.prefer.indexOf(s.id) >= 0) return 99;
     const kw = { coffeeFrenzy: 'coffee', keyboardSmash: 'keyboard', bugFix: 'bug', bassBoost: 'headphone' };
     if (this.cfg.synergy && kw[s.id] && !b.board.cells.some((c) => c && c.type === kw[s.id])) {
       return 0.3;                                   // 熟练机器人：本局没这件装备就不点它的专属加成
@@ -586,6 +600,22 @@ function main() {
   push(`【build】(P2 新增) 不同打法原型 ${buildList.length} 种 / ${M.runs} 局  最热原型占比 ${topBuildShare}%  点到机制技能的局数占比 ${Math.round((M.mechanicRuns / Math.max(1, M.runs)) * 100)}%`);
   push(`【原型 top5】${buildList.slice(0, 5).map((x) => `${x.k}×${x.n}`).join('  ')}`);
   push(`【技能热度 top6】${pickList.slice(0, 6).map((p) => `${p.k}:${p.n}`).join('  ')}`);
+  // 被选率：机制类 vs 纯数值类（判断"三选一是不是真有取舍、机制技能够不够吸引")
+  const rate = (ids) => {
+    let o = 0;
+    let p = 0;
+    ids.forEach((id) => { o += M.offered[id] || 0; p += M.picked[id] || 0; });
+    return o ? Math.round((p / o) * 100) : -1;
+  };
+  const allIds = Object.keys(M.offered);
+  const mechIds = allIds.filter((id) => MECHANIC_IDS.indexOf(id) >= 0);
+  const statIds = allIds.filter((id) => MECHANIC_IDS.indexOf(id) < 0);
+  push(`【被选率】机制类 ${rate(mechIds)}%  纯数值类 ${rate(statIds)}%  （=被选中次数/出现在三选一里的次数）`);
+  const rateList = allIds.filter((id) => M.offered[id] >= 100)
+    .map((id) => ({ id, r: (M.picked[id] || 0) / M.offered[id], o: M.offered[id] }))
+    .sort((a, c) => a.r - c.r);
+  push(`【最冷门（被选率最低，出现≥100次）】${rateList.slice(0, 5).map((x) => `${x.id} ${Math.round(x.r * 100)}%`).join('  ')}`);
+  push(`【最抢手】${rateList.slice(-5).reverse().map((x) => `${x.id} ${Math.round(x.r * 100)}%`).join('  ')}`);
   push(`【经济】每局金币中位 ${median(M.coins)}  三线满级所需局数 ${M.runsToMaxUpgrade.length ? M.runsToMaxUpgrade.join('/') : '未达成'}（按每局金币估算 ${Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))} 局，升级总价 ${totalUpgradeCost()}）`);
   push(`【广告·潜机会/单场】${JSON.stringify(M.adOpportunities)} 合计 ${(adOpp / sess).toFixed(2)}/局，${(adOpp / Math.max(1, M.runs)).toFixed(2)}/单场`);
   push(`【广告·实际看/单场】${JSON.stringify(M.adShows)} 合计 ${(adShowTotal / sess).toFixed(2)}/局，${(adShowTotal / Math.max(1, M.runs)).toFixed(2)}/单场`);
@@ -647,6 +677,8 @@ function main() {
       topBuildSharePct: topBuildShare,
       mechanicRunSharePct: Math.round((M.mechanicRuns / Math.max(1, M.runs)) * 100),
       topSkills: pickList.slice(0, 8),
+      mechanicPickRate: rate(mechIds),
+      statPickRate: rate(statIds),
       runsToMaxUpgrade: M.runsToMaxUpgrade,
       runsToMaxUpgradeEstimated: Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins))),
       upgradeTotalCost: totalUpgradeCost(),

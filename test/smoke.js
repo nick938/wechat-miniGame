@@ -540,6 +540,34 @@ check('三个机制技能都在配置里且能改 mods', (() => {
   return b9.mods.crit > 0 && b9.mods.chill > 0 && b9.mods.lifesteal > 0;
 })());
 
+// ---------- 18. Boss 前预警 ----------
+console.log('\n[18] Boss 前预警');
+touch('start', 348, 27); // ⏸ 先离开 [17] 的战斗
+step(0.05);
+const homeFromPause2 = center(d.battle.modal.rects.home);
+tap(homeFromPause2.x, homeFromPause2.y);
+step(0.1);
+d.meta.bestLevel = 4; // 第 4 关是 Boss 关
+tap(187.5, 320);
+step(0.2);
+const b11 = d.battle;
+check('进入第 4 关（Boss 关）', d.scene === 'battle' && b11.level === 4 && b11.cfg.isBoss === true);
+check('关卡配置带 Boss 出场秒数', b11.cfg.bossAt > 0);
+d.debug.setTime(b11.cfg.bossAt - CFG.BOSS_WARN_SEC - 3); // 还早
+d.debug.setTimeLeft(60);
+step(0.2);
+check('离 Boss 还有 11 秒时不预警', !b11.bossWarn);
+H.clearTexts();
+d.debug.setTime(b11.cfg.bossAt - CFG.BOSS_WARN_SEC + 0.5); // 进入预警窗口
+step(0.2);
+check('进入预警窗口后显示倒计时', b11.bossWarn > 0 && b11.bossWarn <= CFG.BOSS_WARN_SEC);
+check('预警真的画到了屏幕上', H.hasText('秒后老板来查岗'));
+check('预警有埋点', H.countEvents('boss_warning') >= 1);
+d.debug.setTime(b11.cfg.bossAt + 0.1); // Boss 出场
+step(0.2);
+check('Boss 出场后预警撤掉', !b11.bossWarn);
+check('Boss 已登场', !!b11.bossRef);
+
 // ---------- 结果 ----------
 console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);
 process.exit(fail ? 1 : 0);
