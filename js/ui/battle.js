@@ -199,9 +199,9 @@ class BattleScene {
     if (b.mods.killExplode > 0 && Math.random() < b.mods.killExplode) {
       this.explodeAt(e.x, e.y, Math.round(e.hpMax * 0.3), 70);
     }
-    // 摸鱼回血：击杀回一点工位血（配合清场快的 build 才能续航）
+    // 摸鱼回血：按生命上限的百分比回血（配合清场快的 build 才能续航）
     if (b.mods.lifesteal > 0 && b.baseHp < b.baseHpMax) {
-      b.baseHp = Math.min(b.baseHpMax, b.baseHp + b.mods.lifesteal);
+      b.baseHp = Math.min(b.baseHpMax, b.baseHp + b.baseHpMax * b.mods.lifesteal);
     }
     if (e.boss) {
       b.bossRef = null;

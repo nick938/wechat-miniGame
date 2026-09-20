@@ -74,8 +74,8 @@ function apply(battle, skill) {
       break;
     case 'layoff': m.killExplode = 0.15; break;
     case 'crit': m.crit += 0.20; break;
-    case 'chill': m.chill = Math.min(0.5, m.chill + 0.25); break;
-    case 'lifesteal': m.lifesteal += 1; break;
+    case 'chill': m.chill = Math.min(0.6, m.chill + 0.30); break;
+    case 'lifesteal': m.lifesteal += 0.03; break; // 按生命上限的百分比回血，才能撑住 Boss 关的持续掉血
     case 'annualLeave':
       battle.baseHpMax += 50;
       battle.baseHp = battle.baseHpMax;

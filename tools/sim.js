@@ -104,7 +104,7 @@ const SKILL_VALUE = {
   mute: 0.8, slowNet: 0.8, toiletBreak: 0.7, leave: 1.1, annualLeave: 0.9,
   shield: 0.9, refill: 0.8, postpone: 0.7, layoff: 0.9,
   overtimePay: 0.85, fishology: 0.85,              // 金币/经验类：对局外成长有用，别让机器人一律无视（这是模型选择，不是强度结论）
-  crit: 1.35, chill: 1.0, lifesteal: 1.15,           // P2 机制技能：会改打法，优先拿
+  crit: 1.6, chill: 1.25, lifesteal: 1.45,           // 机制技能（已加强）：会改打法，优先拿
 };
 const DEFENSIVE = ['mute', 'slowNet', 'toiletBreak', 'shield', 'annualLeave'];
 

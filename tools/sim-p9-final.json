@@ -4,13 +4,13 @@
     "players": 30,
     "sessions": 3,
     "seed": 1,
-    "elapsedSec": 159.3,
-    "frames": 5252313
+    "elapsedSec": 138.9,
+    "frames": 5276779
   },
   "summary": {
     "sessions": 90,
-    "runs": 451,
-    "wins": 361,
+    "runs": 452,
+    "wins": 362,
     "loses": 90,
     "passByLevel": {
       "1": {
@@ -42,166 +42,166 @@
         "lose": 0
       },
       "8": {
-        "win": 30,
-        "lose": 14
+        "win": 29,
+        "lose": 17
       },
       "9": {
-        "win": 30,
-        "lose": 2
+        "win": 29,
+        "lose": 0
       },
       "10": {
-        "win": 28,
-        "lose": 8
+        "win": 29,
+        "lose": 6
       },
       "11": {
-        "win": 27,
-        "lose": 11
+        "win": 26,
+        "lose": 9
       },
       "12": {
-        "win": 23,
-        "lose": 12
+        "win": 24,
+        "lose": 10
       },
       "13": {
-        "win": 11,
-        "lose": 27
+        "win": 13,
+        "lose": 26
       },
       "14": {
         "win": 2,
-        "lose": 14
+        "lose": 19
       },
       "15": {
         "win": 0,
-        "lose": 2
+        "lose": 3
       }
     },
-    "sessionEndMedianLevel": 12,
-    "medianFirstKill": 4.826299999784687,
-    "medianFirstMerge": 0.1670000000298023,
-    "medianFirstLevelup": 8.03270000143346,
-    "medianRunDuration": 210.00250003743875,
+    "sessionEndMedianLevel": 13,
+    "medianFirstKill": 4.83,
+    "medianFirstMerge": 0.17,
+    "medianFirstLevelup": 8.29,
+    "medianRunDuration": 210,
     "medianMerges": 18,
     "medianLevelups": 9,
     "medianSupplyDropped": 23,
     "medianSupplyLost": 0,
-    "medianCoins": 247,
-    "recycledTotal": 384,
+    "medianCoins": 246.5,
+    "recycledTotal": 370,
     "boardFullEvents": 0,
-    "buildCount": 151,
-    "topBuildSharePct": 10,
-    "mechanicRunSharePct": 84,
+    "buildCount": 156,
+    "topBuildSharePct": 5,
+    "mechanicRunSharePct": 93,
     "topSkills": [
       {
         "k": "autofish",
-        "n": 756
+        "n": 608
       },
       {
         "k": "swiftHands",
-        "n": 753
-      },
-      {
-        "k": "coffeeFrenzy",
-        "n": 423
-      },
-      {
-        "k": "bugFix",
-        "n": 385
+        "n": 605
       },
       {
         "k": "lifesteal",
-        "n": 368
+        "n": 528
+      },
+      {
+        "k": "chill",
+        "n": 488
+      },
+      {
+        "k": "coffeeFrenzy",
+        "n": 418
       },
       {
         "k": "keyboardSmash",
-        "n": 363
+        "n": 377
+      },
+      {
+        "k": "bugFix",
+        "n": 359
       },
       {
         "k": "crit",
-        "n": 273
-      },
-      {
-        "k": "efficiency",
-        "n": 238
+        "n": 271
       }
     ],
-    "mechanicPickRate": 42,
-    "statPickRate": 28,
+    "mechanicPickRate": 64,
+    "statPickRate": 24,
     "dailyOpen": 60,
     "dailyClaim": 90,
     "dailyChest": 30,
-    "codexOpen": 49,
-    "achievementClaim": 165,
+    "codexOpen": 48,
+    "achievementClaim": 168,
     "dex": {
-      "kills": 2312,
-      "merges": 277,
-      "recycled": 17,
+      "kills": 2416,
+      "merges": 288,
+      "recycled": 10,
       "runs": 17,
       "wins": 14,
-      "adsWatched": 42,
+      "adsWatched": 41,
       "maxLv": 4,
       "byType": {
-        "bug": 779,
-        "group": 383,
-        "product": 195,
-        "mini": 580,
-        "request": 235,
+        "bug": 835,
+        "product": 224,
+        "mini": 669,
+        "group": 345,
+        "request": 176,
         "boss": 1,
-        "meeting": 137,
+        "meeting": 164,
         "bossLead": 1,
         "bossBig": 1
       }
     },
     "runsToMaxUpgrade": [
+      14,
       15,
+      14,
       13,
-      14,
-      14,
-      14,
-      15,
-      14,
-      14,
-      12,
-      15,
-      14,
-      15,
-      14,
-      11,
-      16,
-      13,
-      12,
-      13,
-      14,
-      15,
-      14,
       14,
       16,
       14,
+      15,
+      16,
+      16,
       13,
       15,
-      14
+      15,
+      14,
+      14,
+      15,
+      15,
+      14,
+      15,
+      13,
+      16,
+      14,
+      16,
+      12,
+      13,
+      16,
+      15
     ],
     "runsToMaxUpgradeEstimated": 18,
     "upgradeTotalCost": 4377,
     "sinkUpgradeCost": 33076,
-    "sinkRunsEstimated": 134,
+    "sinkRunsEstimated": 135,
     "adOpportunities": {
-      "reroll": 3574,
-      "double": 361,
-      "revive": 137
+      "reroll": 3618,
+      "double": 362,
+      "revive": 139
     },
     "adShows": {
       "chest": 90,
-      "double": 361,
-      "reroll": 393,
-      "revive": 137
+      "double": 362,
+      "reroll": 416,
+      "revive": 139
     },
     "adRewards": {
       "chest": 90,
-      "double": 361,
-      "reroll": 393,
-      "revive": 137
+      "double": 362,
+      "reroll": 416,
+      "revive": 139
     },
-    "adOpportunityPerSession": 45.24,
-    "adShowPerSession": 10.9,
+    "adOpportunityPerSession": 45.77,
+    "adShowPerSession": 11.19,
     "fullBoardFramePct": 0,
     "deadlockFramePct": 0,
     "deadlockEvents": 0,
@@ -211,11 +211,11 @@
       "timeout": 0
     },
     "peak": {
-      "enemies": 35,
-      "projectiles": 37,
-      "fxs": 34
+      "enemies": 32,
+      "projectiles": 39,
+      "fxs": 40
     },
-    "battleFrames": 5065250,
+    "battleFrames": 5084505,
     "stuckCount": 0,
     "stuck": []
   }

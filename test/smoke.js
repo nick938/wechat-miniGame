@@ -530,18 +530,20 @@ slowOne.chillMul = 0.5;
 step(0.5);
 check('被冰缓的敌人确实走得慢', slowOne.y < fastOne.y * 0.75);
 
-// 回血：击杀回血且不超过上限
-b9.mods.lifesteal = 2;
-b9.baseHp = b9.baseHpMax - 5;
+// 回血：击杀按生命上限百分比回血，且不超过上限（3% × 2 层 = 6%）
+b9.mods.lifesteal = 0.06;
+b9.baseHp = b9.baseHpMax - 20;
 const beforeHeal = b9.baseHp;
 b9.enemies.length = 0;
 app.battle.spawnEnemy('bug');
 const victim = b9.enemies[0];
 victim.hp = 1;
-b9.mods.lifesteal = 2;
+b9.mods.lifesteal = 0.06;
 app.battle.damageEnemy(victim, 5, false);
 step(1 / 60);
-check('击杀回血 +2', b9.baseHp === beforeHeal + 2);
+const healExpected = b9.baseHpMax * 0.06;
+check(`击杀按上限 6% 回血（实测 +${(b9.baseHp - beforeHeal).toFixed(1)}）`,
+  Math.abs((b9.baseHp - beforeHeal) - healExpected) < 0.5);
 b9.baseHp = b9.baseHpMax;
 b9.enemies.length = 0;
 app.battle.spawnEnemy('bug');

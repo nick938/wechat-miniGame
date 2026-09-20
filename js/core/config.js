@@ -101,7 +101,7 @@ const LEVEL_NAMES = ['周一早会', '临时需求', '改需求了', 'Bug大爆�
 const BOSS_EVERY = 4;          // 每 4 关一个 Boss（第 4、8、12 关…）
 // Boss 关额外血量倍率，按 Boss 序号给：第 4 关当"教学 Boss"、第 8 关是真正的"墙"、
 // 第 12 关不再额外加（关卡自身的成长已经够陡，再加就变成谁都打不过的死墙）
-const BOSS_HP_MUL_BY_INDEX = [1.2, 2.8, 0.8];
+const BOSS_HP_MUL_BY_INDEX = [1.2, 3.1, 0.8];
 const BOSS_WARN_SEC = 8;       // Boss 出场前多少秒开始预警（给玩家整理棋盘的时间）
 // 补给间隔（秒）：合成是这游戏的主操作，间隔太大就会"每局只合 6 次"（基线实测），
 // 9 秒一投 ⇒ 每局到手约 24 件，合成次数才够（目标 15 次/场），棋盘也才会真的挤起来，
@@ -193,9 +193,9 @@ const SKILLS = [
   { id: 'layoff',       name: '优化毕业',     rarity: 4, max: 1, desc: '击杀时 15% 概率引爆周围敌人' },
   { id: 'annualLeave',  name: '带薪年假',     rarity: 4, max: 1, desc: '生命上限 +50 并回满' },
   // 会改变打法的机制技能：让"选什么"真的影响这一局怎么玩，而不只是数值变大
-  { id: 'crit',         name: '手气不错',     rarity: 3, max: 2, desc: '每次命中 20% 概率造成三倍伤害' },
-  { id: 'chill',        name: '冷处理',       rarity: 2, max: 2, desc: '命中让敌人减速 25%，持续 1.5 秒' },
-  { id: 'lifesteal',    name: '摸鱼回血',     rarity: 2, max: 2, desc: '每次击杀回复 1 点工位生命' },
+  { id: 'crit',         name: '手气不错',     rarity: 3, max: 3, desc: '每次命中 20% 概率造成三倍伤害（可叠 3 层）' },
+  { id: 'chill',        name: '冷处理',       rarity: 2, max: 2, desc: '命中让敌人减速 30%，持续 1.5 秒' },
+  { id: 'lifesteal',    name: '摸鱼回血',     rarity: 2, max: 2, desc: '每次击杀回复 3% 工位生命上限（可叠 2 层）' },
 ];
 const RARITY_WEIGHT = { 1: 55, 2: 30, 3: 12, 4: 3 };
 const RARITY_NAME = { 1: '白', 2: '蓝', 3: '紫', 4: '橙' };
