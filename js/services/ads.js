@@ -7,6 +7,7 @@
 const C = require('../core/config');
 
 const SHOW_TIMEOUT = 180; // 秒：广告占用位的看门狗上限
+const AD_RETRY = 2;       // 线上加载失败的额外重试次数（失败即不发奖励，不降级成模拟广告）
 
 let instance;
 
@@ -16,7 +17,6 @@ class AdService {
     instance = this;
 
     this._ad = null;
-    this._broken = false;
     this.simulating = null; // {placement, t, dur, onReward}
     this.showing = false;   // 激励视频进行中：挡住重复触发（否则同一奖励可能白扣/多发）
     this.showTimer = 0;     // 占用计时，供看门狗用
@@ -27,7 +27,6 @@ class AdService {
     if (typeof wx === 'undefined' || !wx.createRewardedVideoAd || !C.AD_UNIT_ID) return null;
     try {
       const ad = wx.createRewardedVideoAd({ adUnitId: C.AD_UNIT_ID });
-      ad.onError(() => { this._broken = true; });
       this._ad = ad;
       return ad;
     } catch (e) {
@@ -35,7 +34,7 @@ class AdService {
     }
   }
 
-  show(placement, onReward) {
+  show(placement, onReward, onFail) {
     if (this.showing) return; // 上一个广告还没结束，忽略这次触发
     this.showing = true;
     this.showTimer = 0;
@@ -47,29 +46,46 @@ class AdService {
       onReward();
     };
     const ad = this.getAd();
-    if (ad && !this._broken) {
-      const onClose = (res) => {
-        ad.offClose(onClose);
-        this.showing = false;
-        this.showTimer = 0;
-        if (res && res.isEnded) reward();
-        else if (typeof wx !== 'undefined' && wx.showToast) {
-          wx.showToast({ title: '看完整个广告才有奖励哦', icon: 'none' });
-        }
-      };
-      ad.onClose(onClose);
-      ad.show().catch(() => {
-        ad.load()
-          .then(() => ad.show())
-          .catch(() => {
-            ad.offClose(onClose);
-            this._broken = true;
-            this.simulate(placement, reward); // showing 保持占用，交给模拟广告收尾
-          });
-      });
-    } else {
+    if (!ad) {
+      // 没配置广告位（开发/未配置）才走模拟广告：这是唯一的"白给"场景
       this.simulate(placement, reward);
+      return;
     }
+    // 线上：加载失败要重试；重试仍失败就明确告知并【不发奖励】，绝不降级成白送
+    let attempt = 0;
+    const tryShow = () => {
+      ad.show().catch(() => {
+        attempt++;
+        if (attempt <= AD_RETRY) {
+          ad.load().then(() => tryShow()).catch(() => tryShow()); // 重新加载后再试
+          return;
+        }
+        this.fail(placement, onFail);
+      });
+    };
+    const onClose = (res) => {
+      ad.offClose(onClose);
+      this.showing = false;
+      this.showTimer = 0;
+      if (res && res.isEnded) reward();
+      else if (typeof wx !== 'undefined' && wx.showToast) {
+        wx.showToast({ title: '看完整个广告才有奖励哦', icon: 'none' });
+      }
+    };
+    ad.onClose(onClose);
+    tryShow();
+  }
+
+  // 广告不可用：解占用、提示玩家、双方都不发奖励（reward 一定不会被调用）
+  fail(placement, onFail) {
+    const { track } = require('./track');
+    track('ad_unavailable', { placement });
+    this.showing = false;
+    this.showTimer = 0;
+    if (typeof wx !== 'undefined' && wx.showToast) {
+      wx.showToast({ title: '广告暂时不可用，稍后再试', icon: 'none' });
+    }
+    if (onFail) onFail();
   }
 
   simulate(placement, onReward) {

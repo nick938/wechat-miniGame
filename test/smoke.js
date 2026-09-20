@@ -188,6 +188,7 @@ for (let i = 0; i < 25 && !b.modal; i++) {
 }
 check('弹出胜利结算', b.modal && b.modal.type === 'result' && b.modal.win === true);
 check('结算含摸鱼分且刷新历史最高', b.modal.score > 0 && d.meta.bestScore >= b.modal.score && b.modal.newRecord === true);
+check('结算按钮把"能换到什么"写清楚了', H.hasText('本局金币 ×2'));
 const coinsBeforeDouble = d.meta.coins;
 const runCoins = b.coins;
 const dbl = center(b.modal.rects.double);
@@ -736,6 +737,83 @@ const giveUp4 = b13.modal && b13.modal.type === 'revive' ? center(b13.modal.rect
 if (giveUp4) { tap(giveUp4.x, giveUp4.y); step(0.1); }
 check('真实结算路径写入了长期统计', Ach.ensure(d).runs === 1 && Ach.ensure(d).merges === 1);
 
-// ---------- 结果 ----------
-console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);
-process.exit(fail ? 1 : 0);
+// ---------- 21. 广告价值：收益告知 + 线上失败不发奖励 ----------
+console.log('\n[21] 广告收益告知与失败策略');
+exitToHome();
+check('回到首页（本节前提）', d.scene === 'home');
+// 收益告知：首页宝箱按钮写清能拿到多少
+check('首页宝箱按钮写清了金币范围', H.hasText('看广告开宝箱 +') && H.hasText('今日剩'));
+// 收益告知：三选一刷新按钮写明"换一批技能"
+d.meta.bestLevel = 1;
+tap(187.5, 320);
+step(0.2);
+d.debug.addExp(400);
+step(0.1);
+check('三选一刷新按钮写明了能换到什么', H.hasText('看广告换一批技能'));
+check('复活面板不再写"满血"（实际只回 50%）', !H.hasText('满血复活'));
+drainLevelups();
+exitToHome();
+
+(async () => {
+  const tick = () => new Promise((r) => setImmediate(r));
+  const adSvc = app.adService;
+  // 场景一：未配置广告位（开发/未配置）→ 走模拟广告并发奖励
+  check('未配置广告位时 AD_UNIT_ID 为空', CFG.AD_UNIT_ID === '');
+  let devRewarded = false;
+  adSvc.show('double', () => { devRewarded = true; });
+  check('未配置时走模拟广告', !!adSvc.simulating);
+  step(3.3);
+  check('模拟广告到点发奖励（开发期行为）', devRewarded === true);
+
+  // 场景二：线上广告加载失败 → 重试若干次后提示"广告暂时不可用"且【不发奖励】
+  CFG.AD_UNIT_ID = 'test-ad-unit';
+  adSvc._ad = null;
+  wx.createRewardedVideoAd = () => ({
+    onClose() {}, offClose() {},
+    show: () => Promise.reject(new Error('no fill')),
+    load: () => Promise.reject(new Error('no fill')),
+  });
+  global.__lastToast = null;
+  let failRewarded = false;
+  let failNotified = false;
+  const adsWatchedBefore = Ach.ensure(d).adsWatched;
+  adSvc.show('double', () => { failRewarded = true; }, () => { failNotified = true; });
+  check('播放中占用位生效（挡住重复触发）', adSvc.showing === true);
+  for (let i = 0; i < 12; i++) await tick(); // 等重试链走完
+  check('线上失败不发奖励（绝不降级成白送）', failRewarded === false);
+  check('线上失败不计入看广告统计', Ach.ensure(d).adsWatched === adsWatchedBefore);
+  check('提示"广告暂时不可用"', global.__lastToast === '广告暂时不可用，稍后再试');
+  check('失败回调被执行、占用位释放', failNotified === true && adSvc.showing === false);
+  check('失败有埋点 ad_unavailable', H.countEvents('ad_unavailable') >= 1);
+
+  // 场景三：线上广告正常 → 看完才发奖励（确认新策略没把正常路径改坏）
+  let closedCb = null;
+  wx.createRewardedVideoAd = () => ({
+    onClose(cb) { closedCb = cb; }, offClose() { closedCb = null; },
+    show: () => Promise.resolve(),
+    load: () => Promise.resolve(),
+  });
+  adSvc._ad = null;
+  let okRewarded = false;
+  adSvc.show('revive', () => { okRewarded = true; });
+  for (let i = 0; i < 3; i++) await tick();
+  check('正常广告进入等待关闭状态', adSvc.showing === true && !!closedCb);
+  if (closedCb) closedCb({ isEnded: true });
+  check('看完整个广告才发奖励', okRewarded === true && adSvc.showing === false);
+  // 中途关掉广告不发奖励
+  adSvc._ad = null;
+  let skipRewarded = false;
+  adSvc.show('revive', () => { skipRewarded = true; });
+  for (let i = 0; i < 3; i++) await tick();
+  if (closedCb) closedCb({ isEnded: false });
+  check('没看完广告不发奖励', skipRewarded === false);
+
+  // 复位（后续如需再测，走回开发期路径）
+  CFG.AD_UNIT_ID = '';
+  adSvc._ad = null;
+  delete wx.createRewardedVideoAd;
+
+  // ---------- 结果 ----------
+  console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);
+  process.exit(fail ? 1 : 0);
+})();

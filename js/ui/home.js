@@ -307,7 +307,10 @@ class Home {
     this.drawBtn(ctx, this.rects.start, '▶  开始摸鱼', '#3aa76d', '#ffffff', 20);
     this.drawBtn(ctx, this.rects.upgrade, '🪑 工位升级', '#ffffff', '#4a90d9', 16, '#4a90d9');
     const left = this.chestLeft();
-    this.drawBtn(ctx, this.rects.chest, `🎁 广告宝箱（今日剩 ${left} 次）`, '#ffffff', '#e8a33d', 16, '#e8a33d');
+    // 按钮上直接写清能换到多少金币（值一眼可见），范围与 openChest 的公式一致
+    const chestMul = 1 + d.meta.bestLevel * 0.05;
+    const chestRange = `${Math.round(80 * chestMul)}~${Math.round(220 * chestMul)}`;
+    this.drawBtn(ctx, this.rects.chest, `🎁 看广告开宝箱 +${chestRange} 🪙（今日剩 ${left} 次）`, '#ffffff', '#e8a33d', 14, '#e8a33d');
     this.drawBtn(ctx, this.rects.rank, '🏆 好友摸鱼榜', '#ffffff', '#ff8c00', 16, '#ff8c00');
     this.drawBtn(ctx, this.rects.share, '📣 分享给工友', '#ffffff', '#666666', 16, '#cccccc');
 

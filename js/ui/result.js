@@ -90,7 +90,8 @@ class Result {
       if (!m.doubled) {
         rects.double = { x: (W - BTN_W) / 2, y, w: BTN_W, h: BTN_H };
         U.drawPanel(ctx, rects.double.x, y, BTN_W, BTN_H, 24, '#e8a33d');
-        U.drawText(ctx, '📺 看广告 金币翻倍', W / 2, y + 24, 15, '#ffffff', 'center', 'bold');
+        // 写清具体能拿到多少（值一眼可见）
+        U.drawText(ctx, `📺 看广告 本局金币 ×2（+${b.coins} 🪙）`, W / 2, y + 24, 14, '#ffffff', 'center', 'bold');
         y += BTN_H + 12;
       }
       rects.next = { x: (W - BTN_W) / 2, y, w: BTN_W, h: BTN_H };

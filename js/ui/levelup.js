@@ -57,7 +57,7 @@ class LevelUp {
     if (battle.rerollLeft > 0) {
       const rr = { x: (W - 160) / 2, y: CARD_TOP + 3 * (CARD_H + 14) + 6, w: 160, h: 40 };
       U.drawPanel(ctx, rr.x, rr.y, rr.w, rr.h, 20, 'rgba(255,255,255,0.9)', '#4a90d9');
-      U.drawText(ctx, `📺 看广告刷新（剩${battle.rerollLeft}次）`, W / 2, rr.y + 20, 13, '#4a90d9', 'center', 'bold');
+      U.drawText(ctx, `📺 看广告换一批技能（剩${battle.rerollLeft}次）`, W / 2, rr.y + 20, 12, '#4a90d9', 'center', 'bold');
       m.rects.reroll = rr;
     } else {
       m.rects.reroll = null; // 次数用完必须清掉热区，否则玩家点空位会白看一次广告

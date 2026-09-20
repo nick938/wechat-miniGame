@@ -776,12 +776,12 @@ class BattleScene {
     ctx.fillRect(0, 0, W, H);
     U.drawPanel(ctx, W / 2 - 140, H / 2 - 150, 280, 300, 16, '#ffffff');
     U.drawText(ctx, '😵 工位要被占领了！', W / 2, H / 2 - 100, 20, '#ff6b6b', 'center', 'bold');
-    U.drawText(ctx, '看个广告满血复活，', W / 2, H / 2 - 60, 14, '#666666');
+    U.drawText(ctx, '看个广告回半血复活，', W / 2, H / 2 - 60, 14, '#666666');
     U.drawText(ctx, '敌人全部击退回入口', W / 2, H / 2 - 38, 14, '#666666');
 
     const rr = { x: W / 2 - 110, y: H / 2 + 0, w: 220, h: 48 };
     U.drawPanel(ctx, rr.x, rr.y, rr.w, rr.h, 24, '#e8a33d');
-    U.drawText(ctx, '📺 看广告 复活', W / 2, rr.y + 24, 16, '#ffffff', 'center', 'bold');
+    U.drawText(ctx, '📺 看广告 复活（回 50% 血）', W / 2, rr.y + 24, 15, '#ffffff', 'center', 'bold');
     const gr = { x: W / 2 - 110, y: H / 2 + 62, w: 220, h: 42 };
     U.drawPanel(ctx, gr.x, gr.y, gr.w, gr.h, 21, '#e5ded2');
     U.drawText(ctx, '认命，下班', W / 2, gr.y + 21, 14, '#666666');
