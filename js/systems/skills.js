@@ -4,12 +4,19 @@
 const C = require('../core/config');
 const U = require('../core/utils');
 
+// 全部技能都点满时用的兜底卡：三选一弹层必须永远有卡可选，
+// 否则（没有关闭按钮的）弹层会把玩家永久卡住
+const MASTERY_OFFER = {
+  id: 'mastery', name: '样样精通', rarity: 4, desc: `技能全部满级：+${C.MASTERY_COINS} 金币`,
+};
+
 // 抽一个可用技能（考虑叠加层数与品质权重），offerCount 个互不重复
 function rollOffers(battle, count = 3) {
   const available = C.SKILLS.filter((s) => {
     const owned = battle.skills.find((k) => k.id === s.id);
     return !owned || owned.stacks < s.max;
   });
+  if (!available.length) return [MASTERY_OFFER];
   const offers = [];
   for (let i = 0; i < count && available.length; i++) {
     // 按品质权重抽
@@ -29,6 +36,10 @@ function rollOffers(battle, count = 3) {
 
 // 应用技能：改 mods 或立即效果
 function apply(battle, skill) {
+  if (skill.id === 'mastery') {         // 兜底卡：直接给金币，不进技能列表
+    battle.coins += C.MASTERY_COINS;
+    return 0;
+  }
   const m = battle.mods;
   let owned = battle.skills.find((k) => k.id === skill.id);
   if (!owned) {

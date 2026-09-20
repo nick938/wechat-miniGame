@@ -1,0 +1,104 @@
+{
+  "meta": {
+    "tier": "novice",
+    "players": 30,
+    "sessions": 3,
+    "seed": 1,
+    "elapsedSec": 56.2,
+    "frames": 3970493
+  },
+  "summary": {
+    "sessions": 90,
+    "runs": 375,
+    "wins": 285,
+    "loses": 90,
+    "passByLevel": {
+      "1": {
+        "win": 30,
+        "lose": 0
+      },
+      "2": {
+        "win": 30,
+        "lose": 0
+      },
+      "3": {
+        "win": 30,
+        "lose": 0
+      },
+      "4": {
+        "win": 30,
+        "lose": 0
+      },
+      "5": {
+        "win": 30,
+        "lose": 0
+      },
+      "6": {
+        "win": 30,
+        "lose": 0
+      },
+      "7": {
+        "win": 30,
+        "lose": 1
+      },
+      "8": {
+        "win": 30,
+        "lose": 2
+      },
+      "9": {
+        "win": 30,
+        "lose": 15
+      },
+      "10": {
+        "win": 15,
+        "lose": 50
+      },
+      "11": {
+        "win": 0,
+        "lose": 22
+      }
+    },
+    "sessionEndMedianLevel": 10,
+    "medianFirstKill": 4.859699999783197,
+    "medianFirstMerge": 2.1876999999024007,
+    "medianFirstLevelup": 13.994599999375351,
+    "medianRunDuration": 195.00589999128914,
+    "medianMerges": 6,
+    "medianLevelups": 6,
+    "medianSupplyDropped": 9,
+    "medianSupplyLost": 0,
+    "medianCoins": 195,
+    "runsToMaxUpgrade": [],
+    "runsToMaxUpgradeEstimated": 39,
+    "upgradeTotalCost": 7440,
+    "adOpportunities": {
+      "reroll": 2381,
+      "double": 285,
+      "revive": 119
+    },
+    "adShows": {
+      "revive": 119
+    },
+    "adRewards": {
+      "revive": 119
+    },
+    "adOpportunityPerSession": 30.94,
+    "adShowPerSession": 1.32,
+    "fullBoardFramePct": 0,
+    "deadlockFramePct": 0,
+    "deadlockEvents": 0,
+    "deadlockMaxStreakSec": 0,
+    "deaths": {
+      "chewed": 90,
+      "timeout": 0
+    },
+    "peak": {
+      "enemies": 27,
+      "projectiles": 26,
+      "fxs": 27
+    },
+    "battleFrames": 3926289,
+    "stuckCount": 0,
+    "stuck": []
+  }
+}

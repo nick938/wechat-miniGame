@@ -6,67 +6,10 @@
  */
 'use strict';
 
-// ---------- 桩：wx / GameGlobal / rAF ----------
-const storageMap = new Map();
-const touchHandlers = {};
-
-function makeCtx() {
-  const t = {};
-  return new Proxy(t, {
-    get(target, key) {
-      if (key in target) return target[key];
-      if (key === 'measureText') return () => ({ width: 10 });
-      if (key === 'createLinearGradient' || key === 'createRadialGradient') {
-        return () => ({ addColorStop() {} });
-      }
-      return () => 0; // 其余方法一律 no-op
-    },
-    set(target, key, value) {
-      target[key] = value;
-      return true;
-    },
-  });
-}
-
-const fakeCanvas = {
-  width: 0,
-  height: 0,
-  getContext: () => makeCtx(),
-};
-
-global.wx = {
-  getSystemInfoSync: () => ({ windowWidth: 375, windowHeight: 667, pixelRatio: 2, platform: 'devtools' }),
-  createCanvas: () => fakeCanvas,
-  onTouchStart: (cb) => { touchHandlers.start = cb; },
-  onTouchMove: (cb) => { touchHandlers.move = cb; },
-  onTouchEnd: (cb) => { touchHandlers.end = cb; },
-  onTouchCancel: (cb) => { touchHandlers.end = cb; },
-  getStorageSync: (k) => (storageMap.has(k) ? storageMap.get(k) : ''),
-  setStorageSync: (k, v) => { storageMap.set(k, v); },
-  createInnerAudioContext: () => ({
-    src: '', loop: false,
-    play() {}, pause() {}, stop() {}, onError() {}, destroy() {},
-  }),
-  vibrateShort() {},
-  showToast(o) { global.__lastToast = o && o.title; },
-  shareAppMessage() {},
-  showShareMenu() {},
-};
-
-global.GameGlobal = {};
-global.__lastToast = null;
-
-// 固定随机种子：测试结果可复现
-let seed = 42;
-Math.random = () => {
-  seed = (seed * 1103515245 + 12345) % 2147483648;
-  return seed / 2147483648;
-};
-
-let rafCb = null;
-let now = 0;
-global.requestAnimationFrame = (cb) => { rafCb = cb; return 1; };
-global.cancelAnimationFrame = () => {};
+// ---------- 无头运行环境：与 tools/sim.js 共用 test/harness.js ----------
+const { createHarness } = require('./harness');
+const H = createHarness({ seed: 42 }); // 固定随机种子：测试结果可复现
+H.install();
 
 // ---------- 载入游戏 ----------
 const App = require('../js/main');
@@ -83,31 +26,10 @@ function check(name, cond) {
   }
 }
 
-function step(seconds) {
-  const frames = Math.round(seconds * 60);
-  for (let i = 0; i < frames; i++) {
-    now += 16.7;
-    const cb = rafCb;
-    rafCb = null;
-    if (cb) cb(now);
-  }
-}
-
-function touch(name, x, y) {
-  const cb = touchHandlers[name];
-  if (!cb) throw new Error(`no handler: ${name}`);
-  cb({ touches: [{ clientX: x, clientY: y }], changedTouches: [{ clientX: x, clientY: y }] });
-}
-
-// 点按（弹层有 justOpened 防误触，首次点按会被吞掉，因此点两次）
-function tap(x, y) {
-  touch('start', x, y);
-  touch('start', x, y);
-}
-
-function center(r) {
-  return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
-}
+const step = (seconds) => H.step(seconds);
+const touch = (name, x, y) => H.touch(name, x, y);
+const tap = (x, y) => H.tap(x, y);
+const center = (r) => H.center(r);
 
 // 排空所有待选的升级三选一（一直选第一张卡）
 function drainLevelups() {
@@ -339,7 +261,7 @@ check('关闭面板', app.home.panel === null);
 
 // ---------- 10. 存档持久化 ----------
 console.log('\n[10] 存档');
-const saved = storageMap.get('moyu_defense_save_v1');
+const saved = H.storageMap.get('moyu_defense_save_v1');
 check('存档已写入 storage', !!saved && saved.bestLevel >= 2 && saved.totalKills > 0 && saved.bestScore > 0);
 
 // ---------- 11. 词缀生效：工作群静音（减伤）与明天再说（护盾） ----------
@@ -395,6 +317,22 @@ step(2);
 check('广告占用位有超时兜底', app.adService.showing === false);
 drainLevelups();
 
+// 同一个三选一面板里把刷新次数用完：热区必须消失，
+// 否则玩家点到那块空位会白看一次广告（回调里 rerollLeft 已是 0，什么也不会发生）
+b5.rerollLeft = 1;
+d.debug.addExp(400);
+step(0.1);
+check('还剩 1 次刷新时画出热区', b5.modal && b5.modal.type === 'levelup' && !!b5.modal.rects.reroll);
+const rrSpot = center(b5.modal.rects.reroll);
+tap(rrSpot.x, rrSpot.y); // 用完最后 1 次
+step(3.2);
+check('刷完后次数归零且热区被清掉', b5.rerollLeft === 0 && b5.modal.rects.reroll === null);
+tap(rrSpot.x, rrSpot.y); // 再点原来那个位置（现在是空的）
+step(0.2);
+check('点已消失的刷新热区不会触发广告', !app.adService.simulating && app.adService.showing === false);
+check('点空位也不会误选技能', b5.modal && b5.modal.type === 'levelup');
+drainLevelups();
+
 // ---------- 13. 链式引爆结算（回归：长连锁不能留僵尸怪卡关） ----------
 console.log('\n[13] 链式引爆');
 d.meta.bestLevel = 1;
@@ -424,6 +362,29 @@ b6.enemies[0].dying = true; // 只点着第一个，其余全靠引爆连坐
 step(1 / 60); // 只跑一帧：整条连锁必须在同一个子步进里结算完，不能跨帧慢慢消化
 check('链式引爆在同一帧内结算完（不留残影）', b6.enemies.every((e) => !e.dying));
 check(`${CHAIN} 个敌人全部结算入账`, b6.kills - killsBeforeChain === CHAIN);
+
+// ---------- 14. 技能全满级兜底（回归：不能让三选一弹层没有可选卡把玩家卡死） ----------
+console.log('\n[14] 技能全满级兜底');
+const b7 = d.battle;
+CFG.SKILLS.forEach((s) => {
+  const owned = b7.skills.find((k) => k.id === s.id);
+  if (owned) owned.stacks = s.max;
+  else b7.skills.push({ id: s.id, stacks: s.max });
+});
+d.debug.addExp(400);
+step(0.1);
+check('全满级后三选一仍有卡可选', b7.modal && b7.modal.type === 'levelup' &&
+  b7.modal.options.length >= 1 && !!b7.modal.rects.cards[0]);
+const coinsBeforeMastery = b7.coins;
+const masteryCard = b7.modal && b7.modal.rects.cards[0];
+if (masteryCard) { // 没有卡时（旧代码）不要去点，否则测试会崩在中途、后面的断言跑不到
+  tap(masteryCard.x + masteryCard.w / 2, masteryCard.y + masteryCard.h / 2);
+  step(0.1);
+}
+check('兜底卡可点、弹层能关掉、金币到账',
+  !!masteryCard && b7.coins === coinsBeforeMastery + CFG.MASTERY_COINS);
+drainLevelups();
+check('继续排空升级也不会再卡住', b7.modal === null);
 
 // ---------- 结果 ----------
 console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

@@ -144,6 +144,8 @@ const SKILLS = [
 const RARITY_WEIGHT = { 1: 55, 2: 30, 3: 12, 4: 3 };
 const RARITY_NAME = { 1: '白', 2: '蓝', 3: '紫', 4: '橙' };
 const RARITY_COLOR = { 1: '#9aa5b1', 2: '#4a90d9', 3: '#9b59d0', 4: '#e8a33d' };
+// 所有技能都点满后的兜底奖励卡（否则三选一弹层会没有可选卡，把玩家永久卡在弹层里）
+const MASTERY_COINS = 80;
 
 // ---------- 局外成长（工位升级） ----------
 const UPGRADES = {
@@ -179,7 +181,7 @@ module.exports = {
   WEAPONS, WEAPON_TYPES, MAX_WEAPON_LV,
   ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_NAMES, BOSS_EVERY, SUPPLY_INTERVAL, BASE_HP,
   buildLevel,
-  SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR,
+  SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR, MASTERY_COINS,
   UPGRADES, UPGRADE_COST,
   AD_UNIT_ID, CHEST_PER_DAY, REROLL_PER_RUN,
   expNeed,

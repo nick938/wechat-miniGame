@@ -1,0 +1,114 @@
+{
+  "meta": {
+    "tier": "normal",
+    "players": 30,
+    "sessions": 3,
+    "seed": 1,
+    "elapsedSec": 90,
+    "frames": 4214528
+  },
+  "summary": {
+    "sessions": 90,
+    "runs": 386,
+    "wins": 296,
+    "loses": 90,
+    "passByLevel": {
+      "1": {
+        "win": 30,
+        "lose": 0
+      },
+      "2": {
+        "win": 30,
+        "lose": 0
+      },
+      "3": {
+        "win": 30,
+        "lose": 0
+      },
+      "4": {
+        "win": 30,
+        "lose": 0
+      },
+      "5": {
+        "win": 30,
+        "lose": 0
+      },
+      "6": {
+        "win": 30,
+        "lose": 0
+      },
+      "7": {
+        "win": 30,
+        "lose": 0
+      },
+      "8": {
+        "win": 30,
+        "lose": 1
+      },
+      "9": {
+        "win": 30,
+        "lose": 5
+      },
+      "10": {
+        "win": 22,
+        "lose": 42
+      },
+      "11": {
+        "win": 4,
+        "lose": 36
+      },
+      "12": {
+        "win": 0,
+        "lose": 6
+      }
+    },
+    "sessionEndMedianLevel": 10,
+    "medianFirstKill": 4.84,
+    "medianFirstMerge": 0.17,
+    "medianFirstLevelup": 13.82,
+    "medianRunDuration": 195.01,
+    "medianMerges": 6,
+    "medianLevelups": 6,
+    "medianSupplyDropped": 9,
+    "medianSupplyLost": 0,
+    "medianCoins": 184.5,
+    "runsToMaxUpgrade": [],
+    "runsToMaxUpgradeEstimated": 41,
+    "upgradeTotalCost": 7440,
+    "adOpportunities": {
+      "reroll": 2027,
+      "double": 296,
+      "revive": 120
+    },
+    "adShows": {
+      "chest": 90,
+      "double": 296,
+      "reroll": 325,
+      "revive": 120
+    },
+    "adRewards": {
+      "chest": 90,
+      "double": 296,
+      "reroll": 325,
+      "revive": 120
+    },
+    "adOpportunityPerSession": 27.14,
+    "adShowPerSession": 9.23,
+    "fullBoardFramePct": 0,
+    "deadlockFramePct": 0,
+    "deadlockEvents": 0,
+    "deadlockMaxStreakSec": 0,
+    "deaths": {
+      "chewed": 90,
+      "timeout": 0
+    },
+    "peak": {
+      "enemies": 29,
+      "projectiles": 23,
+      "fxs": 25
+    },
+    "battleFrames": 4065046,
+    "stuckCount": 0,
+    "stuck": []
+  }
+}

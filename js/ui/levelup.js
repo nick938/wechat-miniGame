@@ -59,6 +59,8 @@ class LevelUp {
       U.drawPanel(ctx, rr.x, rr.y, rr.w, rr.h, 20, 'rgba(255,255,255,0.9)', '#4a90d9');
       U.drawText(ctx, `📺 看广告刷新（剩${battle.rerollLeft}次）`, W / 2, rr.y + 20, 13, '#4a90d9', 'center', 'bold');
       m.rects.reroll = rr;
+    } else {
+      m.rects.reroll = null; // 次数用完必须清掉热区，否则玩家点空位会白看一次广告
     }
   }
 
@@ -73,7 +75,8 @@ class LevelUp {
     if (cardIdx >= 0) {
       const skill = m.options[cardIdx];
       Skills.apply(battle, skill);
-      track('skill_pick', { id: skill.id, stacks: battle.skills.find((k) => k.id === skill.id).stacks });
+      const owned = battle.skills.find((k) => k.id === skill.id); // 兜底卡（样样精通）不进技能列表
+      track('skill_pick', { id: skill.id, stacks: owned ? owned.stacks : 0 });
       battle.pendingLevels--;
       battle.modal = null;
       U.vibrate();

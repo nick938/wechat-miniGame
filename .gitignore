@@ -20,3 +20,6 @@ __pycache__/
 
 # 日志
 *.log
+
+# 模拟器临时产物（正式基线 tools/sim-baseline-*.json 要入库做前后对比）
+tools/sim-last.json
