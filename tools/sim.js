@@ -18,6 +18,7 @@ const fs = require('fs');
 const { createHarness } = require('../test/harness');
 const C = require('../js/core/config');
 const { cellRect } = require('../js/ui/board');
+const Daily = require('../js/systems/daily');
 
 // ---------- 参数 ----------
 const LABEL_RE = /^[a-z0-9_-]{1,32}$/i;
@@ -51,9 +52,9 @@ const TIERS = {
   // 反应间隔以帧计（1 帧 = 16.7ms）；新手机器人慢半拍，熟练机器人手快
   // mergeChance：看到可合成的一对时会不会马上去合——新手只有不到一半概率注意得到，
   // 这样才会真实出现「棋盘被塞满」「满盘且无可合成对」的场景，否则死局指标永远是 0
-  novice: { react: 30, speed: 1, sortByLevel: false, reroll: false, revive: true, double: false, chest: false, synergy: false, mergeChance: 0.45, recycle: false, recycleAt: 0 },
-  normal: { react: 14, speed: 2, sortByLevel: true, reroll: true, revive: true, double: true, chest: true, synergy: false, mergeChance: 0.85, recycle: true, recycleAt: 10 },
-  expert: { react: 8, speed: 3, sortByLevel: true, reroll: true, revive: true, double: true, chest: true, synergy: true, mergeChance: 1, recycle: true, recycleAt: 10 },
+  novice: { react: 30, speed: 1, sortByLevel: false, reroll: false, revive: true, double: false, chest: false, synergy: false, mergeChance: 0.45, recycle: false, recycleAt: 0, daily: false },
+  normal: { react: 14, speed: 2, sortByLevel: true, reroll: true, revive: true, double: true, chest: true, synergy: false, mergeChance: 0.85, recycle: true, recycleAt: 10, daily: true },
+  expert: { react: 8, speed: 3, sortByLevel: true, reroll: true, revive: true, double: true, chest: true, synergy: true, mergeChance: 1, recycle: true, recycleAt: 10, daily: true },
 };
 
 // ---------- 工具 ----------
@@ -299,6 +300,15 @@ class Bot {
       this.cool = 6;
       return;
     }
+    if (h.panel === 'daily') {
+      const c = h.rects.claims[0];
+      if (c) { H.tap(c.x + c.w / 2, c.y + c.h / 2); this.cool = 8; return; }
+      if (h.rects.freeChest) { H.tap(h.rects.freeChest.x + 30, h.rects.freeChest.y + 26); this.cool = 8; return; }
+      const cl = h.rects.dailyClose;
+      H.tap(cl.x + cl.w / 2, cl.y + cl.h / 2);
+      this.cool = 8;
+      return;
+    }
     if (h.panel === 'upgrade') {
       const idx = this.cheapestAffordable();
       if (idx >= 0) {
@@ -313,6 +323,15 @@ class Bot {
       return;
     }
     if (h.panel) return;                            // 其它面板机器人不会打开
+    // 每日任务/免费宝箱：有红点就点开领（和真人一样的习惯）
+    if (this.cfg.daily) {
+      if (Daily.claimableCount(d) > 0 || Daily.freeChestLeft(d) > 0) {
+        const r0 = h.rects.daily;
+        H.tap(r0.x + r0.w / 2, r0.y + r0.h / 2);
+        this.cool = 8;
+        return;
+      }
+    }
     if (this.cfg.chest && h.chestLeft() > 0) {      // 广告宝箱（每天 3 次）
       const r = h.rects.chest;
       H.tap(r.x + r.w / 2, r.y + r.h / 2);
@@ -600,6 +619,7 @@ function main() {
   push(`【build】(P2 新增) 不同打法原型 ${buildList.length} 种 / ${M.runs} 局  最热原型占比 ${topBuildShare}%  点到机制技能的局数占比 ${Math.round((M.mechanicRuns / Math.max(1, M.runs)) * 100)}%`);
   push(`【原型 top5】${buildList.slice(0, 5).map((x) => `${x.k}×${x.n}`).join('  ')}`);
   push(`【技能热度 top6】${pickList.slice(0, 6).map((p) => `${p.k}:${p.n}`).join('  ')}`);
+  push(`【每日】(P3 新增) 打开面板 ${H.countEvents('daily_open')} 次  领任务奖励 ${H.countEvents('daily_claim')} 次  领免费宝箱 ${H.countEvents('daily_chest')} 次`);
   // 被选率：机制类 vs 纯数值类（判断"三选一是不是真有取舍、机制技能够不够吸引")
   const rate = (ids) => {
     let o = 0;
@@ -679,6 +699,9 @@ function main() {
       topSkills: pickList.slice(0, 8),
       mechanicPickRate: rate(mechIds),
       statPickRate: rate(statIds),
+      dailyOpen: H.countEvents('daily_open'),
+      dailyClaim: H.countEvents('daily_claim'),
+      dailyChest: H.countEvents('daily_chest'),
       runsToMaxUpgrade: M.runsToMaxUpgrade,
       runsToMaxUpgradeEstimated: Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins))),
       upgradeTotalCost: totalUpgradeCost(),

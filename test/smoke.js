@@ -16,6 +16,7 @@ const App = require('../js/main');
 const { cellRect } = require('../js/ui/board');
 const CFG = require('../js/core/config');
 const Skills = require('../js/systems/skills');
+const Daily = require('../js/systems/daily');
 
 let pass = 0;
 let fail = 0;
@@ -42,6 +43,21 @@ function drainLevelups() {
     if (!card) break;
     tap(card.x + card.w / 2, card.y + card.h / 2);
     step(0.05);
+  }
+}
+
+// 无论当前停在战斗、弹层还是结算里，都按真人路径退回首页
+function exitToHome() {
+  for (let i = 0; i < 8 && d.scene === 'battle'; i++) {
+    drainLevelups();
+    const m = d.battle && d.battle.modal;
+    if (m) {
+      const r = m.rects.home || m.rects.giveup || m.rects.resume; // 结算/复活/暂停都有出路
+      if (r) tap(r.x + r.w / 2, r.y + r.h / 2);
+    } else {
+      touch('start', 348, 27); // ⏸
+    }
+    step(0.15);
   }
 }
 
@@ -567,6 +583,76 @@ d.debug.setTime(b11.cfg.bossAt + 0.1); // Boss 出场
 step(0.2);
 check('Boss 出场后预警撤掉', !b11.bossWarn);
 check('Boss 已登场', !!b11.bossRef);
+
+// ---------- 19. 每日任务与免费宝箱 ----------
+console.log('\n[19] 每日任务与免费宝箱');
+exitToHome(); // 上一节停在 Boss 关的战斗里，先回首页
+check('回到首页（本节前提）', d.scene === 'home');
+d.meta.daily = null;
+Daily.ensure(d);
+check('新的一天从 0 进度开始', Daily.state(d).every((t) => t.progress === 0 && !t.claimed));
+check('免费宝箱每天 1 次', Daily.freeChestLeft(d) === 1);
+// 一局打完按局结算（一次写入）
+Daily.flush(d, { win: true, kills: 40, merges: 12 });
+const stOf = (id) => Daily.state(d).find((t) => t.id === id);
+check('通关任务完成 1/1', stOf('clearRun').progress === 1 && stOf('clearRun').done === true);
+check('合成任务按局封顶 10/10', stOf('merge10').progress === 10);
+check('击杀任务记 40/60', stOf('kill60').progress === 40);
+check('可领取数 = 2（通关 + 合成）', Daily.claimableCount(d) === 2);
+const coinsBeforeClaim = d.meta.coins;
+check('领取返回奖励金币', Daily.claim(d, 'clearRun') === CFG.DAILY_TASKS[0].coins);
+check('奖励金币到账', d.meta.coins === coinsBeforeClaim + CFG.DAILY_TASKS[0].coins);
+check('同一个任务不能重复领', Daily.claim(d, 'clearRun') === 0);
+check('没完成的任务领不到', Daily.claim(d, 'kill60') === 0);
+const coinsBeforeFree = d.meta.coins;
+check(`免费宝箱给 ${CFG.FREE_CHEST_COINS} 金币（不用看广告）`, Daily.takeFreeChest(d) === CFG.FREE_CHEST_COINS);
+check('免费宝箱到账且每天只能领一次', d.meta.coins === coinsBeforeFree + CFG.FREE_CHEST_COINS &&
+  Daily.takeFreeChest(d) === 0 && Daily.freeChestLeft(d) === 0);
+// 跨天重置
+d.meta.daily.date = '2000-1-1';
+Daily.ensure(d);
+check('跨天进度与宝箱都重置', Daily.state(d).every((t) => t.progress === 0 && !t.claimed) && Daily.freeChestLeft(d) === 1);
+// 首页 UI：打开面板 → 领取 → 免费宝箱 → 关闭
+tap(33, 59); // 左上角 📋
+step(0.1);
+check('打开每日任务面板', app.home.panel === 'daily');
+check('面板画出了任务名与免费宝箱', H.hasText('今天先摸一局') && H.hasText('每日免费宝箱'));
+check('未完成的任务没有领取按钮', app.home.rects.claims.length === 0);
+Daily.flush(d, { win: true, kills: 0, merges: 0 });
+step(0.05);
+const claimBtn = app.home.rects.claims[0];
+check('完成后出现领取按钮', !!claimBtn);
+const coinsBeforeUi = d.meta.coins;
+if (claimBtn) { tap(claimBtn.x + claimBtn.w / 2, claimBtn.y + claimBtn.h / 2); step(0.05); }
+check('点领取按钮奖励到账', d.meta.coins === coinsBeforeUi + CFG.DAILY_TASKS[0].coins);
+const fcBtn = app.home.rects.freeChest;
+const coinsBeforeFc = d.meta.coins;
+if (fcBtn) { tap(fcBtn.x + fcBtn.w / 2, fcBtn.y + fcBtn.h / 2); step(0.05); }
+check('点免费宝箱按钮到账', d.meta.coins === coinsBeforeFc + CFG.FREE_CHEST_COINS);
+const dClose = app.home.rects.dailyClose;
+tap(dClose.x + dClose.w / 2, dClose.y + dClose.h / 2);
+step(0.05);
+check('关闭每日任务面板', app.home.panel === null);
+// 集成：真的在战斗里合成，并且走真实结算路径，进度才会进每日任务
+d.meta.daily = null;
+Daily.ensure(d);
+d.meta.bestLevel = 1;
+tap(187.5, 320);
+step(0.2);
+const b12 = d.battle;
+check('新局开局（用于每日任务集成测试）', d.scene === 'battle' && b12.merges === 0);
+const m0 = cellRect(0);
+const m5 = cellRect(5);
+H.drag({ x: m0.x + m0.w / 2, y: m0.y + m0.h / 2 }, { x: m5.x + m5.w / 2, y: m5.y + m5.h / 2 });
+step(0.05);
+check('局内合成计数 +1', b12.merges === 1);
+check('合成后每日任务进度还没结算（要等一局结束）', stOf('merge10').progress === 0);
+d.debug.damageBase(99999);
+step(0.1);
+const giveUp3 = b12.modal && b12.modal.type === 'revive' ? center(b12.modal.rects.giveup) : null;
+if (giveUp3) { tap(giveUp3.x, giveUp3.y); step(0.1); }
+check('真实结算路径把局内进度写进了每日任务', stOf('merge10').progress === 1);
+check('失败不算通关任务', stOf('clearRun').progress === 0);
 
 // ---------- 结果 ----------
 console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);

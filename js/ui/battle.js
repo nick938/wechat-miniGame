@@ -9,6 +9,7 @@ const Fx = require('../entities/fx');
 const WeaponSys = require('../systems/weapon');
 const Skills = require('../systems/skills');
 const WaveCtl = require('../systems/waves');
+const Daily = require('../systems/daily');
 const { track } = require('../services/track');
 const { Board, cellRect } = require('./board');
 const LevelUp = require('./levelup');
@@ -38,6 +39,7 @@ class BattleScene {
     this.board.onMerge = (idx, item) => {
       U.vibrate();
       this.app.audio.playHit();
+      this.b.merges++;                             // 每日任务「合成 N 次」用
       track('weapon_merge', { lv: item.lv, type: item.type });
       this.addFx('ring', WeaponSys.cellCenterX(idx), WeaponSys.cellCenterY(idx), { r1: 34, color: '#69cd8c' });
       this.addFx('text', WeaponSys.cellCenterX(idx), WeaponSys.cellCenterY(idx) - 24, {
@@ -421,6 +423,8 @@ class BattleScene {
     const b = d.battle;
     if (!b || b.settled) return;
     b.settled = true;
+    // 中途退出也算每日任务进度（合成/击杀不白费），但没有"通关"这一项
+    Daily.flush(d, { win: false, kills: b.kills, merges: b.merges });
     if (b.coins > 0) {
       d.meta.coins += b.coins;
       d.meta.totalKills += b.kills;

@@ -17,6 +17,7 @@ function defaultMeta() {
     bestScore: 0,          // 历史最高摸鱼分
     totalKills: 0,
     chest: { date: '', used: 0 }, // 每日广告宝箱
+    daily: null,           // 每日任务/免费宝箱（跨天由 systems/daily.js 重置）
     soundOn: true,
     helpSeen: false,       // 首页玩法说明弹窗已看过
     speed: 1,              // 战斗倍速偏好（×1/×2/×3）
@@ -81,6 +82,7 @@ class Databus {
       exp: 0,
       charLevel: 1,
       kills: 0,
+      merges: 0,            // 本局合成次数（每日任务结算用）
       revived: false,
       settled: false, // 本局金币是否已入账（防中途退出重复/遗漏结算）
       speed: C.SPEED_STEPS.indexOf(m.speed) >= 0 ? m.speed : 1, // 本局倍速（沿用上次偏好）

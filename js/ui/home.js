@@ -5,6 +5,8 @@ const C = require('../core/config');
 const U = require('../core/utils');
 const Share = require('../services/share');
 const LB = require('../services/leaderboard');
+const Daily = require('../systems/daily');
+const { track } = require('../services/track');
 
 class Home {
   constructor(app) {
@@ -69,9 +71,13 @@ class Home {
       rank: { x: (W - 280) / 2, y: 484, w: 280, h: 48 },
       share: { x: (W - 280) / 2, y: 542, w: 280, h: 48 },
       help: { x: W - 52, y: 40, w: 38, h: 38 },
+      daily: { x: 14, y: 40, w: 38, h: 38 },      // 每日任务入口（左上角，带红点）
       closePanel: { x: W / 2 + 128, y: 96, w: 34, h: 34 },
       rankClose: { x: W / 2 + 128, y: 100, w: 34, h: 34 },
+      dailyClose: { x: W / 2 + 128, y: 96, w: 34, h: 34 },
       buys: [],
+      claims: [],                                 // 每日任务面板的领取按钮
+      freeChest: null,                            // 每日免费宝箱按钮
     };
   }
 
@@ -97,6 +103,41 @@ class Home {
     const d = this.app.databus;
     const hit = (r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
     const R = this.rects;
+
+    if (this.panel === 'daily') {
+      const d2 = this.app.databus;
+      // 领取任务奖励
+      for (let i = 0; i < this.rects.claims.length; i++) {
+        const r = this.rects.claims[i];
+        if (r && hit(r)) {
+          const gained = Daily.claim(d2, r.id);
+          if (gained > 0) {
+            track('daily_claim', { id: r.id, coins: gained });
+            U.vibrate();
+            if (typeof wx !== 'undefined' && wx.showToast) {
+              wx.showToast({ title: `任务奖励 +${gained} 🪙`, icon: 'none' });
+            }
+          }
+          return;
+        }
+      }
+      // 领取每日免费宝箱
+      if (this.rects.freeChest && hit(this.rects.freeChest)) {
+        const got = Daily.takeFreeChest(d2);
+        if (got > 0) {
+          track('daily_chest', { coins: got });
+          U.vibrate();
+          if (typeof wx !== 'undefined' && wx.showToast) {
+            wx.showToast({ title: `免费宝箱 +${got} 🪙`, icon: 'none' });
+          }
+        } else if (typeof wx !== 'undefined' && wx.showToast) {
+          wx.showToast({ title: '今天的免费宝箱领过啦', icon: 'none' });
+        }
+        return;
+      }
+      if (hit(R.dailyClose)) this.panel = null;
+      return;
+    }
 
     if (this.panel === 'upgrade') {
       if (hit(R.closePanel)) {
@@ -137,6 +178,9 @@ class Home {
     if (hit(R.help)) {
       this.helpPage = 0;
       this.panel = 'help';
+    } else if (hit(R.daily)) {
+      this.panel = 'daily';
+      track('daily_open', { claimable: Daily.claimableCount(d) });
     } else if (hit(R.rank)) {
       this.panel = 'rank';
       LB.requestRefresh(); // 打开时通知开放数据域刷新好友榜
@@ -237,11 +281,82 @@ class Home {
     U.drawPanel(ctx, hr.x, hr.y, hr.w, hr.h, 19, '#ffffff', '#d8cfc0');
     U.drawText(ctx, '❓', hr.x + hr.w / 2, hr.y + hr.h / 2, 18, '#4a90d9');
 
+    // 每日任务入口（左上角；有待领取时加红点）
+    const dr = this.rects.daily;
+    U.drawPanel(ctx, dr.x, dr.y, dr.w, dr.h, 19, '#ffffff', '#d8cfc0');
+    U.drawText(ctx, '📋', dr.x + dr.w / 2, dr.y + dr.h / 2, 18, '#4a90d9');
+    if (Daily.claimableCount(d) > 0 || Daily.freeChestLeft(d) > 0) {
+      ctx.fillStyle = '#ff4d4d';
+      ctx.beginPath();
+      ctx.arc(dr.x + dr.w - 4, dr.y + 5, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     U.drawText(ctx, 'v1.0 · 纯广告变现 · 无内购', W / 2, H - 24, 10, '#c5bba8');
 
     if (this.panel === 'upgrade') this.renderUpgrade(ctx);
     if (this.panel === 'help') this.renderHelp(ctx);
     if (this.panel === 'rank') this.renderRank(ctx);
+    if (this.panel === 'daily') this.renderDaily(ctx);
+  }
+
+  // 每日任务面板：3 个任务（进度条 + 领取） + 每日免费宝箱
+  renderDaily(ctx) {
+    const d = this.app.databus;
+    const W = C.DESIGN_W;
+    const H = C.DESIGN_H;
+    ctx.fillStyle = 'rgba(30,30,40,0.6)';
+    ctx.fillRect(0, 0, W, H);
+
+    const px = (W - 330) / 2;
+    const py = 88;
+    U.drawPanel(ctx, px, py, 330, 420, 16, '#ffffff');
+    U.drawText(ctx, '📋 每日任务', W / 2, py + 34, 19, '#333333', 'center', 'bold');
+    const doneCount = Daily.state(d).filter((t) => t.claimed).length;
+    U.drawText(ctx, `今天已领 ${doneCount} / ${C.DAILY_TASKS.length} 个奖励 · 每天 0 点刷新`, W / 2, py + 58, 11, '#999999');
+
+    this.rects.claims = [];
+    Daily.state(d).forEach((t, i) => {
+      const y = py + 80 + i * 74;
+      U.drawPanel(ctx, px + 14, y, 302, 64, 12, t.done && t.claimed ? '#f0f0f0' : '#f7f4ec');
+      U.drawText(ctx, t.name, px + 28, y + 22, 13, '#333333', 'left', 'bold');
+      U.drawText(ctx, `奖励 🪙 ${t.coins}`, px + 28, y + 44, 11, '#b8860b', 'left');
+      // 进度条
+      const bw = 150;
+      const ratio = U.clamp(t.progress / t.need, 0, 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.08)';
+      U.roundRectPath(ctx, px + 130, y + 40, bw, 8, 4);
+      ctx.fill();
+      ctx.fillStyle = ratio >= 1 ? '#3aa76d' : '#4a90d9';
+      U.roundRectPath(ctx, px + 130, y + 40, bw * ratio, 8, 4);
+      ctx.fill();
+      U.drawText(ctx, `${t.progress}/${t.need}`, px + 130 + bw + 8, y + 44, 10, '#888888', 'left');
+      // 领取按钮
+      const br = { x: px + 214, y: y + 14, w: 88, h: 36, id: t.id };
+      if (t.claimed) {
+        U.drawPanel(ctx, br.x, br.y, br.w, br.h, 18, '#ddd5c6');
+        U.drawText(ctx, '已领取', br.x + br.w / 2, br.y + 18, 12, '#999999', 'center', 'bold');
+      } else if (t.done) {
+        U.drawPanel(ctx, br.x, br.y, br.w, br.h, 18, '#3aa76d');
+        U.drawText(ctx, '领取', br.x + br.w / 2, br.y + 18, 13, '#ffffff', 'center', 'bold');
+        this.rects.claims.push(br);
+      } else {
+        U.drawPanel(ctx, br.x, br.y, br.w, br.h, 18, '#e9e3d8');
+        U.drawText(ctx, '进行中', br.x + br.w / 2, br.y + 18, 12, '#a89f92', 'center', 'bold');
+      }
+    });
+
+    // 每日免费宝箱（不看广告）
+    const left = Daily.freeChestLeft(d);
+    const cr = { x: px + 14, y: py + 302, w: 302, h: 52 };
+    U.drawPanel(ctx, cr.x, cr.y, cr.w, cr.h, 12, left > 0 ? '#e8a33d' : '#f0f0f0');
+    U.drawText(ctx, left > 0 ? `🎁 每日免费宝箱：+${C.FREE_CHEST_COINS} 🪙（不用看广告）` : '🎁 今天的免费宝箱已领，明天再来',
+      W / 2, cr.y + 26, 13, left > 0 ? '#ffffff' : '#999999', 'center', 'bold');
+    this.rects.freeChest = left > 0 ? cr : null;
+
+    const cl = this.rects.dailyClose;
+    U.drawPanel(ctx, cl.x, cl.y, cl.w, cl.h, 17, '#f0ebe1');
+    U.drawText(ctx, '✕', cl.x + cl.w / 2, cl.y + cl.h / 2, 15, '#999999');
   }
 
   // 好友摸鱼榜：开放数据域画在 sharedCanvas，主域整体上屏；不可用时回退本地数据

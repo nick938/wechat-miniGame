@@ -1,0 +1,193 @@
+{
+  "meta": {
+    "tier": "normal",
+    "players": 30,
+    "sessions": 3,
+    "seed": 1,
+    "elapsedSec": 113.4,
+    "frames": 4643378
+  },
+  "summary": {
+    "sessions": 90,
+    "runs": 417,
+    "wins": 327,
+    "loses": 90,
+    "passByLevel": {
+      "1": {
+        "win": 30,
+        "lose": 0
+      },
+      "2": {
+        "win": 30,
+        "lose": 0
+      },
+      "3": {
+        "win": 30,
+        "lose": 0
+      },
+      "4": {
+        "win": 30,
+        "lose": 0
+      },
+      "5": {
+        "win": 30,
+        "lose": 0
+      },
+      "6": {
+        "win": 30,
+        "lose": 0
+      },
+      "7": {
+        "win": 30,
+        "lose": 0
+      },
+      "8": {
+        "win": 30,
+        "lose": 0
+      },
+      "9": {
+        "win": 30,
+        "lose": 1
+      },
+      "10": {
+        "win": 30,
+        "lose": 3
+      },
+      "11": {
+        "win": 25,
+        "lose": 30
+      },
+      "12": {
+        "win": 2,
+        "lose": 54
+      },
+      "13": {
+        "win": 0,
+        "lose": 2
+      }
+    },
+    "sessionEndMedianLevel": 12,
+    "medianFirstKill": 4.843000000864279,
+    "medianFirstMerge": 0.1670000000298023,
+    "medianFirstLevelup": 10.070100001797128,
+    "medianRunDuration": 195.00590003477149,
+    "medianMerges": 17,
+    "medianLevelups": 8,
+    "medianSupplyDropped": 22,
+    "medianSupplyLost": 0,
+    "medianCoins": 218,
+    "recycledTotal": 360,
+    "boardFullEvents": 0,
+    "buildCount": 127,
+    "topBuildSharePct": 12,
+    "mechanicRunSharePct": 80,
+    "topSkills": [
+      {
+        "k": "swiftHands",
+        "n": 617
+      },
+      {
+        "k": "autofish",
+        "n": 611
+      },
+      {
+        "k": "coffeeFrenzy",
+        "n": 354
+      },
+      {
+        "k": "keyboardSmash",
+        "n": 317
+      },
+      {
+        "k": "bugFix",
+        "n": 315
+      },
+      {
+        "k": "lifesteal",
+        "n": 297
+      },
+      {
+        "k": "crit",
+        "n": 224
+      },
+      {
+        "k": "efficiency",
+        "n": 204
+      }
+    ],
+    "mechanicPickRate": 41,
+    "statPickRate": 28,
+    "dailyOpen": 60,
+    "dailyClaim": 90,
+    "dailyChest": 30,
+    "runsToMaxUpgrade": [
+      13,
+      13,
+      12,
+      12,
+      13,
+      13,
+      13,
+      12,
+      12,
+      13,
+      13,
+      13,
+      12,
+      12,
+      13,
+      13,
+      12,
+      13,
+      13,
+      13,
+      13,
+      12,
+      13,
+      14,
+      13,
+      13,
+      12,
+      13,
+      13,
+      12
+    ],
+    "runsToMaxUpgradeEstimated": 21,
+    "upgradeTotalCost": 4377,
+    "adOpportunities": {
+      "reroll": 2924,
+      "double": 327,
+      "revive": 119
+    },
+    "adShows": {
+      "chest": 90,
+      "double": 327,
+      "reroll": 323,
+      "revive": 119
+    },
+    "adRewards": {
+      "chest": 90,
+      "double": 327,
+      "reroll": 323,
+      "revive": 119
+    },
+    "adOpportunityPerSession": 37.44,
+    "adShowPerSession": 9.54,
+    "fullBoardFramePct": 0,
+    "deadlockFramePct": 0,
+    "deadlockEvents": 0,
+    "deadlockMaxStreakSec": 0,
+    "deaths": {
+      "chewed": 90,
+      "timeout": 0
+    },
+    "peak": {
+      "enemies": 35,
+      "projectiles": 36,
+      "fxs": 34
+    },
+    "battleFrames": 4482568,
+    "stuckCount": 0,
+    "stuck": []
+  }
+}

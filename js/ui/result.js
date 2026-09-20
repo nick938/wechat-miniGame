@@ -5,6 +5,7 @@
 const C = require('../core/config');
 const U = require('../core/utils');
 const LB = require('../services/leaderboard');
+const Daily = require('../systems/daily');
 
 const BTN_W = 240;
 const BTN_H = 48;
@@ -32,6 +33,9 @@ class Result {
 
     // 好友排行榜上报（开放数据域）
     LB.submitScore(score);
+
+    // 每日任务进度（一局一结算，只写一次存储）
+    Daily.flush(d, { win, kills: b.kills, merges: b.merges });
 
     b.modal = {
       type: 'result',
