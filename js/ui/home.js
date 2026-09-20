@@ -304,6 +304,18 @@ class Home {
     U.drawText(ctx, `第 ${nextLv} 关 · ${lvCfg.name}`, W / 2, 232, 15, '#4a90d9', 'center', 'bold');
     U.drawText(ctx, `🏆 最高摸鱼分 ${d.meta.bestScore} ｜ 累计击退 ${d.meta.totalKills} 个需求`, W / 2, 252, 11, '#aaaaaa');
 
+    // "差一点就成"：把最近能拿到的奖励摊在首页，不用玩家自己点开面板算
+    const claimableD = Daily.claimableCount(d);
+    const claimableA = Ach.claimableCount(d);
+    let goalLine = '';
+    if (claimableD + claimableA > 0) {
+      goalLine = `🎁 有 ${claimableD + claimableA} 个奖励待领取（点 📋 / 📖）`;
+    } else {
+      const near = Ach.nearest(d);
+      if (near) goalLine = `🎯 ${near.desc}（还差 ${near.need - near.value}）→ +${near.coins}🪙`;
+    }
+    if (goalLine) U.drawText(ctx, goalLine, W / 2, 276, 11, '#4a90d9');
+
     this.drawBtn(ctx, this.rects.start, '▶  开始摸鱼', '#3aa76d', '#ffffff', 20);
     this.drawBtn(ctx, this.rects.upgrade, '🪑 工位升级', '#ffffff', '#4a90d9', 16, '#4a90d9');
     const left = this.chestLeft();

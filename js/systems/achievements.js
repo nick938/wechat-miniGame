@@ -94,4 +94,15 @@ function dexList(databus) {
   }));
 }
 
-module.exports = { ensure, flush, countAd, state, claimableCount, claim, dexList, statValue };
+// 离完成最近的一项成就（首页"差一点就成"用）：未领取里进度比例最高的那个
+function nearest(databus) {
+  let best = null;
+  state(databus).forEach((a) => {
+    if (a.claimed || a.done) return;
+    const ratio = a.value / a.need;
+    if (!best || ratio > best.ratio) best = Object.assign({ ratio }, a);
+  });
+  return best;
+}
+
+module.exports = { ensure, flush, countAd, state, claimableCount, claim, dexList, statValue, nearest };

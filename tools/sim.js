@@ -68,10 +68,23 @@ function median(arr) {
 function pct(a, b) { return b > 0 ? Math.round((a / b) * 1000) / 10 : 0; }
 function bump(obj, key, n) { obj[key] = (obj[key] || 0) + (n === undefined ? 1 : n); }
 
-// 工位三线全部升满所需金币（用于估算「满级所需局数」，短跑也能观测）
+// 工位"三线"（成长线：显示器/座椅/摸鱼学）升满所需金币。
+// 注意不要把「摸鱼达人」算进来——它是给老玩家的长期金币出口（10 级、要 3 万多金币），
+// 目标里的"三线满级 ≤ 25 局"说的是成长线
+const CORE_LINES = ['screen', 'chair', 'fish'];
 function totalUpgradeCost() {
   let total = 0;
+  CORE_LINES.forEach((k) => {
+    for (let t = 0; t < C.UPGRADES[k].maxTier; t++) total += C.UPGRADE_COST(t);
+  });
+  return total;
+}
+
+// 长期出口线（摸鱼达人）满级所需金币，单独报，不参与达标判定
+function sinkUpgradeCost() {
+  let total = 0;
   Object.keys(C.UPGRADES).forEach((k) => {
+    if (CORE_LINES.indexOf(k) >= 0) return;
     for (let t = 0; t < C.UPGRADES[k].maxTier; t++) total += C.UPGRADE_COST(t);
   });
   return total;
@@ -593,7 +606,7 @@ function main() {
     maxedRecorded = false;
     for (let s = 0; s < ARGS.sessions; s++) {
       playSession(bot);
-      const maxed = Object.keys(C.UPGRADES).every((k) => d.meta.upgrades[k] >= C.UPGRADES[k].maxTier);
+      const maxed = CORE_LINES.every((k) => d.meta.upgrades[k] >= C.UPGRADES[k].maxTier);
       if (maxed && !maxedRecorded) {
         maxedRecorded = true;
         M.runsToMaxUpgrade.push(M.runs - runsAtPlayerStart);
@@ -655,7 +668,7 @@ function main() {
     .sort((a, c) => a.r - c.r);
   push(`【最冷门（被选率最低，出现≥100次）】${rateList.slice(0, 5).map((x) => `${x.id} ${Math.round(x.r * 100)}%`).join('  ')}`);
   push(`【最抢手】${rateList.slice(-5).reverse().map((x) => `${x.id} ${Math.round(x.r * 100)}%`).join('  ')}`);
-  push(`【经济】每局金币中位 ${median(M.coins)}  三线满级所需局数 ${M.runsToMaxUpgrade.length ? M.runsToMaxUpgrade.join('/') : '未达成'}（按每局金币估算 ${Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))} 局，升级总价 ${totalUpgradeCost()}）`);
+  push(`【经济】每局金币中位 ${median(M.coins)}  三线满级所需局数 ${M.runsToMaxUpgrade.length ? M.runsToMaxUpgrade.join('/') : '未达成'}（按每局金币估算 ${Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))} 局，三线总价 ${totalUpgradeCost()}；另有长期出口「摸鱼达人」满级 ${Math.ceil(sinkUpgradeCost() / Math.max(1, median(M.coins)))} 局 / ${sinkUpgradeCost()} 金币）`);
   push(`【广告·潜机会/单场】${JSON.stringify(M.adOpportunities)} 合计 ${(adOpp / sess).toFixed(2)}/局，${(adOpp / Math.max(1, M.runs)).toFixed(2)}/单场`);
   push(`【广告·实际看/单场】${JSON.stringify(M.adShows)} 合计 ${(adShowTotal / sess).toFixed(2)}/局，${(adShowTotal / Math.max(1, M.runs)).toFixed(2)}/单场`);
   push(`【压力峰值】敌人 ${M.peak.enemies}  弹丸 ${M.peak.projectiles}  特效 ${M.peak.fxs}`);
@@ -727,6 +740,8 @@ function main() {
       runsToMaxUpgrade: M.runsToMaxUpgrade,
       runsToMaxUpgradeEstimated: Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins))),
       upgradeTotalCost: totalUpgradeCost(),
+      sinkUpgradeCost: sinkUpgradeCost(),
+      sinkRunsEstimated: Math.ceil(sinkUpgradeCost() / Math.max(1, median(M.coins))),
       adOpportunities: M.adOpportunities,
       adShows: M.adShows,
       adRewards: M.adRewards,

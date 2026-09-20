@@ -12,7 +12,7 @@ const SAVE_KEY = 'moyu_defense_save_v1';
 function defaultMeta() {
   return {
     coins: 0,
-    upgrades: { screen: 0, chair: 0, fish: 0 }, // 工位升级等级
+    upgrades: { screen: 0, chair: 0, fish: 0, score: 0 }, // 工位升级等级（第四条是摸鱼分加成，老存档缺这条会补 0）
     bestLevel: 1,          // 解锁到的最高关卡
     bestScore: 0,          // 历史最高摸鱼分
     totalKills: 0,
@@ -88,6 +88,8 @@ class Databus {
       revived: false,
       settled: false, // 本局金币是否已入账（防中途退出重复/遗漏结算）
       speed: C.SPEED_STEPS.indexOf(m.speed) >= 0 ? m.speed : 1, // 本局倍速（沿用上次偏好）
+      // 摸鱼分加成（局外「摸鱼达人」）：只影响分数，不影响战斗
+      scoreMul: 1 + C.UPGRADES.score.perTier * (m.upgrades.score || 0),
       rerollLeft: C.REROLL_PER_RUN,
       pendingLevels: 0,
       supplyTimer: C.SUPPLY_INTERVAL * 0.6, // 首次补给稍早一点

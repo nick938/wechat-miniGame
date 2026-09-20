@@ -235,6 +235,9 @@ const UPGRADES = {
   screen: { id: 'screen', name: '显示器', emoji: '🖥️', desc: '全体伤害', perTier: 0.06, maxTier: 5, fmt: (v) => `+${Math.round(v * 100)}%` },
   chair:  { id: 'chair',  name: '人体工学椅', emoji: '🪑', desc: '工位生命', perTier: 12, maxTier: 5, fmt: (v) => `+${v} HP` },
   fish:   { id: 'fish',   name: '摸鱼学', emoji: '🐟', desc: '金币收益', perTier: 0.06, maxTier: 5, fmt: (v) => `+${Math.round(v * 100)}%` },
+  // 第四条是给老玩家的长期金币出口：前三条 12-17 局就满级，之后金币将无处可花。
+  // 它只放大摸鱼分（排行榜/分享用），不动关卡内的战斗平衡，所以不会破坏难度曲线
+  score:  { id: 'score',  name: '摸鱼达人', emoji: '🏅', desc: '摸鱼分加成', perTier: 0.03, maxTier: 10, fmt: (v) => `+${Math.round(v * 100)}%` },
 };
 const UPGRADE_COST = (tier) => Math.round(60 * Math.pow(1.85, tier)); // tier 从 0 计：60/111/205/379/701，三线合计 4368
 
@@ -278,11 +281,12 @@ const SPEED_STEPS = [1, 2, 3]; // 战斗内倍速循环档位
 // 单局综合分数：击杀×8 + 关卡×800 + 剩余工位血量×25（复活不扣分）
 // 权重调过一轮：此前血量只值 5 分/点，100 血才 500 分 < 一关的 1000 分，
 // "守得好"几乎不值钱；现在满血守住 ≈ 多推一关的量级，两种打法都能拿分
-const calcScore = (b) => Math.max(0, Math.round(
+// scoreMul 来自局外「摸鱼达人」加成（只放大分数，不影响战斗平衡）
+const calcScore = (b) => Math.max(0, Math.round((
   (b.kills || 0) * 8 +
   (b.level || 1) * 800 +
   Math.max(0, b.baseHp || 0) * 25
-));
+) * (b.scoreMul || 1)));
 
 module.exports = {
   DESIGN_W, DESIGN_H, HUD_H, BASE_Y, BOARD_CELL, BOARD_GAP, BOARD_COLS, BOARD_ROWS, BOARD_X0, BOARD_Y0,

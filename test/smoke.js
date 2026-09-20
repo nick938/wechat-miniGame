@@ -1102,6 +1102,71 @@ check('拿不到离屏画布时退回逐帧绘制且不崩', !!d.battle && d.sce
 wx.createCanvas = realCreateCanvas;
 app.battle.fieldLayer = null; // 复位，后续需要时重建
 
+// ---------- 26. 老玩家金币出口（摸鱼达人）+ 首页"差一点就成" ----------
+console.log('\n[26] 金币出口与首页目标提示');
+exitToHome();
+check('回到首页（本节前提）', d.scene === 'home');
+// 摸鱼达人：只放大摸鱼分，不动战斗平衡
+const baseScoreArgs = { kills: 100, level: 5, baseHp: 100 };
+const scoreNoBonus = CFG.calcScore(baseScoreArgs);
+check('没有加成时分数就是原始公式', scoreNoBonus === 100 * 8 + 5 * 800 + 100 * 25);
+d.meta.upgrades.score = 0;
+const b18 = d.newBattle(1);
+check('新局的分数倍率默认 1', b18.scoreMul === 1);
+d.meta.upgrades.score = 1;
+d.newBattle(1);
+check('买了 1 级后倍率 +3%', d.battle.scoreMul === 1.03);
+const withBonus = CFG.calcScore(Object.assign({}, baseScoreArgs, { scoreMul: d.battle.scoreMul }));
+check(`加成后的分数 = 原始 ×1.03（${scoreNoBonus} → ${withBonus}）`, withBonus === Math.round(scoreNoBonus * 1.03));
+check('加成不影响战斗数值（只改分数）', b18.baseHpMax === d.battle.baseHpMax && b18.mods.atkMul === d.battle.mods.atkMul);
+// 上限 10 级
+d.meta.upgrades.score = 10;
+d.newBattle(1);
+check('满级（10 级）时倍率 +30%', d.battle.scoreMul === 1.3);
+d.meta.coins = 999999;
+app.home.buy('score');
+check('满级后买不动', d.meta.upgrades.score === 10);
+// 真实购买路径（走首页面板的 buy）
+d.meta.coins = 5000;
+d.meta.upgrades.score = 0;
+app.home.time = 99; // 绕过 0.25s 防连点
+app.home.buy('score');
+check('有金币时能买到摸鱼达人（扣 60 金币）',
+  d.meta.upgrades.score === 1 && d.meta.coins === 5000 - CFG.UPGRADE_COST(0));
+// 老存档兼容：缺 score 字段也要能读起来
+H.storageMap.set('moyu_defense_save_v1', { coins: 123, upgrades: { screen: 2 }, bestLevel: 3 });
+const oldMeta = d.loadMeta();
+check('老存档缺新字段时补默认值（不崩）',
+  oldMeta.upgrades.score === 0 && oldMeta.upgrades.screen === 2 && oldMeta.coins === 123);
+d.meta.upgrades.score = 0;
+d.meta.coins = 200;
+// 首页"差一点就成"
+d.meta.dex = null;
+d.meta.achClaimed = [];
+Ach.ensure(d);
+d.meta.dex.kills = 75; // 差 25 个完成「手速上来了」
+d.meta.daily = null;
+Daily.ensure(d);
+H.clearTexts();
+step(0.05);
+const nearGoal = Ach.nearest(d);
+check('首页显示"差一点就成"，且与"最近一项"一致',
+  !!nearGoal && H.hasText(`还差 ${nearGoal.need - nearGoal.value}`) && H.hasText(nearGoal.desc));
+Daily.flush(d, { win: true, kills: 0, merges: 0 }); // 造一个可领取
+H.clearTexts();
+step(0.05);
+check('有奖励可领时首页改提示"待领取"', H.hasText('个奖励待领取'));
+// 升级面板里出现第 4 条线
+tap(187.5, 392); // 🪑 工位升级
+step(0.05);
+check('升级面板里有"摸鱼达人"这一条', app.home.panel === 'upgrade' && H.hasText('摸鱼达人'));
+check('四条升级线都在面板里',
+  app.home.rects.buys.length === Object.keys(CFG.UPGRADES).length && app.home.rects.buys.length === 4);
+const closeUp = center(app.home.rects.closePanel);
+touch('start', closeUp.x, closeUp.y);
+step(0.05);
+check('关闭升级面板', app.home.panel === null);
+
 // ---------- 结果 ----------
   console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);
   process.exit(fail ? 1 : 0);
