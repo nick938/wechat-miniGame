@@ -43,6 +43,21 @@ class App {
     }));
 
     this.last = 0;
+    this.paused = false;
+    // 切后台：停 BGM、暂停模拟（rAF 本来就会停，但要防"回来时一帧跳一大步"）
+    if (wx.onHide) {
+      wx.onHide(() => {
+        this.paused = true;
+        this.audio.stopBgm();
+      });
+    }
+    if (wx.onShow) {
+      wx.onShow(() => {
+        this.paused = false;
+        this.last = 0;               // 丢掉后台期间的时间差
+        if (databus.scene === 'battle' && databus.meta.soundOn) this.audio.playBgm();
+      });
+    }
     this.aniId = requestAnimationFrame(this.loop.bind(this));
   }
 
@@ -69,7 +84,7 @@ class App {
   }
 
   loop(ts) {
-    const dt = Math.min(0.033, (ts - this.last) / 1000 || 0.016);
+    const dt = this.paused ? 0 : Math.min(0.033, (ts - this.last) / 1000 || 0.016);
     this.last = ts;
 
     this.adService.tick(dt);

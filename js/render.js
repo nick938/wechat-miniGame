@@ -13,9 +13,13 @@ const ctx = canvas.getContext('2d');
 const scale = Math.min(info.windowWidth / DESIGN_W, info.windowHeight / DESIGN_H);
 const offX = (info.windowWidth - DESIGN_W * scale) / 2;
 const offY = (info.windowHeight - DESIGN_H * scale) / 2;
+// 设备像素比限幅：大屏高 DPR 机上用满 3x 会让填充面积翻倍、低端机掉帧，
+// 2x 在观感与开销之间够用（微信小游戏的常见做法）
+const MAX_DPR = 2;
+const dpr = Math.min(info.pixelRatio || 1, MAX_DPR);
 
-canvas.width = info.windowWidth * info.pixelRatio;
-canvas.height = info.windowHeight * info.pixelRatio;
+canvas.width = info.windowWidth * dpr;
+canvas.height = info.windowHeight * dpr;
 
 // 屏幕物理像素 → 设计坐标
 function toDesign(px, py) {
@@ -30,8 +34,8 @@ function beginFrame(bgColor) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.setTransform(scale * info.pixelRatio, 0, 0, scale * info.pixelRatio,
-    offX * info.pixelRatio, offY * info.pixelRatio);
+  ctx.setTransform(scale * dpr, 0, 0, scale * dpr,
+    offX * dpr, offY * dpr);
 }
 
 GameGlobal.screen = {
@@ -40,6 +44,7 @@ GameGlobal.screen = {
   scale,
   offX,
   offY,
+  dpr,
   toDesign,
   beginFrame,
   ctx,

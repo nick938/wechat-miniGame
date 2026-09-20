@@ -199,8 +199,10 @@ class BattleScene {
 
   addFx(kind, x, y, opts) {
     const d = this.app.databus;
+    const b = this.b;
+    if (b && b.fxs.length >= C.FX_MAX) return; // 统一的特效上限，防群杀瞬间堆爆
     const fx = d.pool.getItemByClass('fx', Fx).init(kind, x, y, opts);
-    this.b.fxs.push(fx);
+    b.fxs.push(fx);
   }
 
   // 一句话提示条（棋盘满了之类），到点自动消失
@@ -298,7 +300,7 @@ class BattleScene {
     // 武器攻击
     WeaponSys.update(this, dt, b.time);
 
-    // 弹丸移动与命中
+    // 弹丸移动与命中（原地压缩数组，避免每帧新建）
     for (const p of b.projectiles) {
       p.update(dt, b.enemies);
       if (p.dead) continue;
@@ -317,13 +319,13 @@ class BattleScene {
         }
       }
     }
-    b.projectiles = b.projectiles.filter((p) => {
-      if (p.dead) {
-        d.pool.recover('proj', p);
-        return false;
-      }
-      return true;
-    });
+    let pw = 0;
+    for (let i = 0; i < b.projectiles.length; i++) {
+      const p = b.projectiles[i];
+      if (p.dead) { d.pool.recover('proj', p); continue; }
+      b.projectiles[pw++] = p;
+    }
+    b.projectiles.length = pw;
 
     // 炸弹引爆
     for (const bomb of b.bombs) {
@@ -333,7 +335,13 @@ class BattleScene {
         d.pool.recover('bomb', bomb);
       }
     }
-    b.bombs = b.bombs.filter((bomb) => !bomb.dead);
+    let bw = 0;
+    for (let i = 0; i < b.bombs.length; i++) {
+      const bomb = b.bombs[i];
+      if (bomb.dead) continue;
+      b.bombs[bw++] = bomb;
+    }
+    b.bombs.length = bw;
 
     // 敌人（Boss 的召唤/狂暴特效在这里统一结算）
     for (const e of b.enemies) {
@@ -364,15 +372,15 @@ class BattleScene {
     // 有待选的升级就弹三选一
     this.checkPendingLevels();
 
-    // 特效
+    // 特效（原地压缩）
     for (const fx of b.fxs) fx.update(dt);
-    b.fxs = b.fxs.filter((fx) => {
-      if (fx.dead) {
-        d.pool.recover('fx', fx);
-        return false;
-      }
-      return true;
-    });
+    let fw = 0;
+    for (let i = 0; i < b.fxs.length; i++) {
+      const fx = b.fxs[i];
+      if (fx.dead) { d.pool.recover('fx', fx); continue; }
+      b.fxs[fw++] = fx;
+    }
+    b.fxs.length = fw;
 
     // 失败 → 复活或结算
     if (b.baseHp <= 0) {

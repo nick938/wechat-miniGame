@@ -48,7 +48,7 @@ function update(scene, dt, time) {
       const shots = item.lv >= 5 ? 3 : (item.lv >= 4 && Math.random() < 0.5 ? 2 : 1);
       for (let s = 0; s < shots; s++) {
         scene.spawnProjectile('bean', cx + (s - 1) * 10, cy - 20, {
-          speed: 420, dmg, pierce: mods.pierce, targetId: target.id,
+          speed: 420, dmg, pierce: mods.pierce, targetId: target.id, target,
         });
       }
     } else if (item.type === 'keyboard') {

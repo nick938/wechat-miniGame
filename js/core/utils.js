@@ -48,12 +48,22 @@ function drawPanel(ctx, x, y, w, h, r, fill, stroke) {
   }
 }
 
+// 字体设置缓存：ctx.font 每次赋值都要重新解析字体串，是战斗里最贵的绘制开销之一
+// （一帧上百次 setFont 在低端安卓上很实在），只有字体串变了才真正赋值
+let lastFont = '';
+function setFont(ctx, font) {
+  if (font !== lastFont) {
+    ctx.font = font;
+    lastFont = font;
+  }
+}
+
 // 居中文字
 function drawText(ctx, text, x, y, size, color, align = 'center', weight = '') {
   ctx.fillStyle = color;
   ctx.textAlign = align;
   ctx.textBaseline = 'middle';
-  ctx.font = `${weight} ${size}px sans-serif`;
+  setFont(ctx, `${weight} ${size}px sans-serif`);
   ctx.fillText(text, x, y);
 }
 
@@ -61,7 +71,7 @@ function drawEmoji(ctx, emoji, x, y, size, alpha = 1) {
   if (alpha < 1) ctx.globalAlpha = alpha;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `${size}px sans-serif`;
+  setFont(ctx, `${size}px sans-serif`);
   ctx.fillText(emoji, x, y);
   if (alpha < 1) ctx.globalAlpha = 1;
 }
@@ -75,4 +85,4 @@ function vibrate() {
   }
 }
 
-module.exports = { rand, randInt, pick, clamp, dist, roundRectPath, drawPanel, drawText, drawEmoji, vibrate };
+module.exports = { rand, randInt, pick, clamp, dist, roundRectPath, drawPanel, drawText, drawEmoji, setFont, vibrate };

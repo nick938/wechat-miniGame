@@ -206,6 +206,7 @@ const RECYCLE_RECT = {
 };
 const recycleCoins = (lv) => Math.round(12 * Math.pow(2.2, lv - 1)); // LV1 12 → LV5 280
 const HINT_SEC = 3.2;          // 战场提示条停留时长
+const FX_MAX = 80;             // 单帧特效上限（超过就丢弃新特效，保帧率）
 
 // ---------- 局外成长（工位升级） ----------
 const UPGRADES = {
@@ -265,7 +266,7 @@ module.exports = {
   DESIGN_W, DESIGN_H, HUD_H, BASE_Y, BOARD_CELL, BOARD_GAP, BOARD_COLS, BOARD_ROWS, BOARD_X0, BOARD_Y0,
   WEAPONS, WEAPON_TYPES, MAX_WEAPON_LV,
   ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_POOL_BONUS, BOSS_ROTATION, LEVEL_NAMES, BOSS_EVERY, BOSS_WARN_SEC, SUPPLY_INTERVAL, BASE_HP,
-  RECYCLE_RECT, recycleCoins, HINT_SEC,
+  RECYCLE_RECT, recycleCoins, HINT_SEC, FX_MAX,
   lossTip,
   buildLevel,
   levelPool,

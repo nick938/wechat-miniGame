@@ -29,8 +29,9 @@ function makeFastCtx(rec) {
 }
 
 // Proxy 版：未知方法也安全（冒烟测试用；新增 ctx 方法不会让测试直接炸）
+// 顺带统计 ctx.font 的赋值次数（字体缓存是否生效的实测证据）
 function makeSlowCtx(rec) {
-  const t = {};
+  const t = { __fontSets: 0 };
   return new Proxy(t, {
     get(target, key) {
       if (key in target) return target[key];
@@ -42,6 +43,7 @@ function makeSlowCtx(rec) {
       return () => 0; // 其余方法一律 no-op
     },
     set(target, key, value) {
+      if (key === 'font') target.__fontSets = (target.__fontSets || 0) + 1;
       target[key] = value;
       return true;
     },
@@ -55,7 +57,10 @@ function createHarness(opts) {
   const events = [];   // wx.reportAnalytics 上报的事件（埋点验证 + 指标来源）
   const shares = [];   // wx.shareAppMessage / wx.onShareAppMessage 的调用记录
   const toasts = [];   // wx.showToast 文案
+  const audioCalls = []; // bgm 的 play/pause 调用记录（前后台切换验证用）
   let shareHandler = null;
+  let hideHandler = null;
+  let showHandler = null;
   let rafCb = null;
   let now = 0;
   let seed = o.seed === undefined ? 42 : o.seed;
@@ -90,17 +95,20 @@ function createHarness(opts) {
     events,
     shares,
     toasts,
+    audioCalls,
     ctx,
     get seed() { return seed; },
     setSeed(v) { seed = v; },
     get shareHandler() { return shareHandler; },
+    get hideHandler() { return hideHandler; },
+    get showHandler() { return showHandler; },
     get now() { return now; },
 
     // 载入游戏代码之前调用（js/render.js 在 require 时就会碰 wx）
     install() {
       global.wx = {
         getSystemInfoSync: () => ({
-          windowWidth: 375, windowHeight: 667, pixelRatio: 2, platform: 'devtools',
+          windowWidth: 375, windowHeight: 667, pixelRatio: 3, platform: 'devtools',
         }),
         createCanvas: () => fakeCanvas,
         onTouchStart: (cb) => { touchHandlers.start = cb; },
@@ -109,15 +117,22 @@ function createHarness(opts) {
         onTouchCancel: (cb) => { touchHandlers.end = cb; },
         getStorageSync: (k) => (storageMap.has(k) ? storageMap.get(k) : ''),
         setStorageSync: (k, v) => { storageMap.set(k, v); },
-        createInnerAudioContext: () => ({
-          src: '', loop: false,
-          play() {}, pause() {}, stop() {}, onError() {}, destroy() {},
-        }),
+        createInnerAudioContext: () => {
+          const a = {
+            src: '', loop: false,
+            play() { audioCalls.push('play'); },
+            pause() { audioCalls.push('pause'); },
+            stop() {}, onError() {}, destroy() {},
+          };
+          return a;
+        },
         vibrateShort() {},
         showToast(opt) { toasts.push(opt && opt.title); global.__lastToast = opt && opt.title; },
         shareAppMessage(opt) { shares.push(opt); },
         showShareMenu() {},
         onShareAppMessage(cb) { shareHandler = cb; },
+        onHide(cb) { hideHandler = cb; },
+        onShow(cb) { showHandler = cb; },
         reportAnalytics(ev, params) { events.push({ ev, params: params || null }); },
       };
       global.GameGlobal = {};

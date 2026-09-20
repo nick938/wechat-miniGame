@@ -17,7 +17,8 @@ class Projectile {
     this.dmg = opts.dmg;
     this.pierce = opts.pierce || 0;   // bean 可额外穿透数
     this.width = opts.width || 10;    // wave 列宽
-    this.targetId = opts.targetId || 0; // bean 跟踪目标
+    this.targetId = opts.targetId || 0; // bean 跟踪目标 id
+    this.target = opts.target || null;  // 直接存目标引用：省掉每帧 O(弹丸×敌人) 的查找
     this.hitSet = {};                 // 已命中敌人 id（wave 用）
     this.dead = false;
     return this;
@@ -25,13 +26,14 @@ class Projectile {
 
   update(dt, enemies) {
     if (this.kind === 'bean') {
-      // 跟踪：每帧朝目标当前位置修正方向
-      if (this.targetId && enemies) {
-        const tgt = enemies.find((e) => e.id === this.targetId && !e.dying);
-        if (tgt) {
-          const dx = tgt.x - this.x;
-          const dy = tgt.y - this.y;
-          const dist = U.dist(this.x, this.y, tgt.x, tgt.y) || 1;
+      // 跟踪：直接用目标引用（校验 id，防止池子把对象回收给别人）
+      if (this.target) {
+        const t = this.target;
+        if (t.dying || t.id !== this.targetId) this.target = null;
+        else {
+          const dx = t.x - this.x;
+          const dy = t.y - this.y;
+          const dist = U.dist(this.x, this.y, t.x, t.y) || 1;
           this.vx = (dx / dist) * this.speed;
           this.vy = (dy / dist) * this.speed;
         }

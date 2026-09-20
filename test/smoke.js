@@ -945,6 +945,78 @@ check(`守住满血与多推一关的分量级接近（${holdScore} vs ${pushSco
 check('血量权重不再是"聊胜于无"（满血 100 血至少值半关）',
   CFG.calcScore({ kills: 0, level: 1, baseHp: 100 }) - CFG.calcScore({ kills: 0, level: 1, baseHp: 0 }) >= 800 / 2);
 
+// ---------- 24. 性能与前后台 ----------
+console.log('\n[24] 性能与前后台');
+exitToHome();
+// 起一局战斗，观察真实渲染开销
+d.meta.bestLevel = 1;
+tap(187.5, 320);
+step(0.3);
+const b16 = d.battle;
+check('进入战斗（本节前提）', d.scene === 'battle' && !!b16);
+// 字体缓存：直接量"缓存机制"本身（同字号连续绘制只设置一次）
+const U = require('../js/core/utils');
+H.ctx.__fontSets = 0;
+U.drawText(H.ctx, 'a', 0, 0, 12, '#000');
+U.drawText(H.ctx, 'b', 0, 0, 12, '#000');
+U.drawText(H.ctx, 'c', 0, 0, 12, '#000');
+check('同字号连续绘制只设置一次字体', H.ctx.__fontSets === 1);
+H.ctx.__fontSets = 0;
+U.drawText(H.ctx, 'a', 0, 0, 12, '#000');
+U.drawText(H.ctx, 'a', 0, 0, 14, '#000');
+check('字号没变时复用缓存、变了才设置（实测 1 次）', H.ctx.__fontSets === 1);
+// 一帧里的实际效果：设置次数不应超过绘制次数（顺序里字号交替时缓存救不了多少，
+// 这点在 指标报告.md 里如实记录过，所以这里只断言"不劣化"）
+H.ctx.__fontSets = 0;
+H.clearTexts();
+step(0.5);
+const fontSets = H.ctx.__fontSets || 0;
+const textsDrawn = H.texts().length;
+check(`战斗中字体设置次数不超过绘制次数（${fontSets} ≤ ${textsDrawn}）`,
+  fontSets > 0 && textsDrawn > 0 && fontSets <= textsDrawn);
+// 数组原地回收：弹丸数组对象应当被复用，而不是每帧新建
+const projArr = b16.projectiles;
+const fxArr = b16.fxs;
+step(0.4);
+check('弹丸数组原地复用（不再每帧 filter 新建）', b16.projectiles === projArr);
+check('特效数组原地复用', b16.fxs === fxArr);
+// 特效上限：群杀瞬间不会堆爆
+for (let i = 0; i < 200; i++) app.battle.addFx('boom', 100, 100, { r1: 20 });
+check(`特效有统一上限（实测 ${b16.fxs.length} ≤ ${CFG.FX_MAX}）`, b16.fxs.length <= CFG.FX_MAX);
+// 弹丸跟踪改为引用：目标死了要能识别，不能追着被回收的怪跑
+b16.enemies.length = 0;
+app.battle.spawnEnemy('request');
+const prey = b16.enemies[0];
+prey.hp = prey.hpMax = 1e6;
+app.battle.spawnProjectile('bean', 100, 400, { speed: 420, dmg: 1, targetId: prey.id, target: prey });
+const bean = b16.projectiles[b16.projectiles.length - 1];
+check('跟踪弹直接持有目标引用', bean.target === prey);
+const distBefore = Math.abs(bean.x - prey.x) + Math.abs(bean.y - prey.y);
+step(0.2);
+const distAfter = Math.abs(bean.x - prey.x) + Math.abs(bean.y - prey.y);
+check('跟踪弹确实朝目标靠近', distAfter < distBefore);
+b16.enemies.length = 0; // 让目标走真实的死亡路径（标记 dying → 战场回收进对象池）
+prey.dying = true;
+step(1 / 60);
+app.battle.spawnEnemy('bug'); // 可能复用同一个对象（新 id）
+step(1 / 60);
+check('目标死后放弃追踪（对象被池子复用也不会追错）',
+  bean.target === null || bean.target.id === bean.targetId);
+// DPR 限幅：模拟器报告 3x，画布只该用 2x
+check(`高 DPR 被限幅到 2（实测 ${GameGlobal.screen.dpr}）`, GameGlobal.screen.dpr === 2);
+// 前后台：切后台停 BGM 并暂停，回前台恢复
+H.audioCalls.length = 0;
+if (H.hideHandler) H.hideHandler();
+check('切后台会暂停模拟', app.paused === true);
+check('切后台会停 BGM', H.audioCalls.indexOf('pause') >= 0);
+H.audioCalls.length = 0;
+if (H.showHandler) H.showHandler();
+check('回前台恢复模拟', app.paused === false);
+check('回前台在战斗中恢复 BGM', H.audioCalls.indexOf('play') >= 0);
+check('回前台会丢掉后台期间的时间差', app.last === 0);
+step(0.1);
+check('恢复后战斗继续推进（时间在走）', b16.time > 0);
+
 // ---------- 结果 ----------
   console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);
   process.exit(fail ? 1 : 0);
