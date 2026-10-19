@@ -12,9 +12,13 @@ const H = createHarness({ seed: 42, recordText: true }); // 固定随机种子 +
 H.install();
 
 // ---------- 载入游戏 ----------
+// 主体用例跑在「广告已开通」档（ADS_ENABLED=true）：只有这样才能覆盖 4 个广告位的
+// 完整交互路径（复活/双倍/刷新/宝箱）。首发实际上线的配置是「广告关闭」，
+// 在 [32] 单独断言 —— 那一节才是真正要保证不出事的配置。
+const CFG = require('../js/core/config');
+CFG.ADS_ENABLED = true;
 const App = require('../js/main');
 const { cellRect } = require('../js/ui/board');
-const CFG = require('../js/core/config');
 const Skills = require('../js/systems/skills');
 const Daily = require('../js/systems/daily');
 const Ach = require('../js/systems/achievements');
@@ -64,6 +68,18 @@ function exitToHome() {
 
 const app = GameGlobal.app;
 const d = GameGlobal.databus;
+
+// 剧情卡会盖在关卡开场（每个关卡第一次进入时放一次）。主体用例测的是战斗/经济/广告，
+// 不该被它打断，所以先把 1~9 关标记成"已看过"；剧情本身在 [33] 单独测。
+d.meta.storySeen = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+// 剧情去重的纯函数断言放在最前面：它一旦退化，下面每一条用例都会被剧情卡挡住，
+// 所以必须在"级联失败"之前就先把它钉住（这条的反向验证才有意义）。
+check('剧情去重：没看过的关要放，看过的关不放（纯函数）',
+  CFG.shouldShowStory(3, []) === true &&
+  CFG.shouldShowStory(3, [3]) === false &&
+  CFG.shouldShowStory(3, [1, 2, 3]) === false &&
+  CFG.shouldShowStory(20, []) === false);
 
 // ---------- 1. 首页与玩法说明弹窗 ----------
 console.log('\n[1] 首页');
@@ -1672,6 +1688,136 @@ console.log('\n[31] 玩法改动回归');
   check('切后台时一帧都不出（真机 rAF 不触发）', drove === false && skipsAfter > skipsBefore);
   check('回前台后恢复出帧', H.frame() === true);
   H.storageClear && H.storageClear();
+}
+
+// ---------- 32. 首发配置：广告关闭（ADS_ENABLED=false）----------
+// 这一节测的才是真正要上线的配置：广告代码全在，只是界面不出现入口。
+// 重点是"没有广告也不能卡住/崩"，以及"与广告绑定的内容必须一起下线"。
+console.log('\n[32] 广告关闭档（首发实际配置）');
+{
+  const ResultUI2 = require('../js/ui/result');
+  const LevelUpUI = require('../js/ui/levelup');
+  const wasOn = CFG.ADS_ENABLED;
+  CFG.ADS_ENABLED = false;
+
+  // 32.1 与广告绑定的任务/成就必须一起下线
+  check('广告关闭时不抽"看完一次广告"的每日任务',
+    CFG.dailyPool().every((t) => t.id !== 'adOne'));
+  CFG.ADS_ENABLED = true;
+  const onHasAdTask = CFG.dailyPool().some((t) => t.id === 'adOne');
+  CFG.ADS_ENABLED = false;
+  check('广告打开时该任务回到池子里（开关是双向的）', onHasAdTask);
+  check('广告关闭时不展示"广告鉴赏家"成就（不可能达成）',
+    CFG.achievements().every((a) => a.id !== 'ad10'));
+  check('成就表只是摘掉一项，其余不受影响',
+    CFG.achievements().length === CFG.ACHIEVEMENTS.length - 1);
+
+  // 32.2 首页：不出现"看广告开宝箱"，下方按钮上移补位
+  app.goHome();
+  app.home.layout();
+  check('首页不出现"看广告开宝箱"按钮', app.home.rects.chest === null);
+  check('下方按钮上移补位，不留空洞',
+    app.home.rects.rank.y === 484 - 58 && app.home.rects.share.y === 542 - 58);
+  H.clearTexts(); // hasText 是环形缓冲，必须先清掉主体用例（广告打开档）画过的文案
+  step(0.05);
+  check('首页不再画出宝箱按钮文案', !H.hasText('看广告开宝箱'));
+  check('每日免费宝箱入口不受影响（它本来就不看广告）',
+    typeof Daily.freeChestLeft === 'function' && Daily.freeChestLeft(d) >= 0);
+
+  // 32.3 结算页：没有双倍按钮，"下一关"照常可用
+  app.startBattle(3);
+  const bRes = d.battle;
+  ResultUI2.open(app.battle, true);
+  H.clearTexts();
+  step(0.05);
+  bRes.modal.justOpened = false;
+  check('结算页没有双倍按钮', !bRes.modal.rects.double);
+  check('结算页没有出现双倍文案（本帧没画）', !H.hasText('本局金币 ×2'));
+  const lvBeforeAdOff = bRes.level;
+  const nxR = bRes.modal.rects.next;
+  ResultUI2.onTouch(app.battle, nxR.x + nxR.w / 2, nxR.y + nxR.h / 2);
+  check('没有广告也能正常进下一关', d.battle.level === lvBeforeAdOff + 1);
+
+  // 32.4 三选一：没有刷新入口，但三张卡照常能选
+  app.startBattle(3);
+  const bLv = d.battle;
+  LevelUpUI.open(bLv);
+  H.clearTexts();
+  step(0.05);
+  bLv.modal.justOpened = false;
+  check('三选一没有"看广告换一批"入口', !bLv.modal.rects.reroll);
+  check('三选一不再出现刷新文案（本帧没画）', !H.hasText('看广告换一批技能'));
+  check('三张卡本身照常渲染', bLv.modal.rects.cards.filter(Boolean).length === 3);
+  const card0 = bLv.modal.rects.cards[0];
+  const picksBefore = bLv.skills.length;
+  LevelUpUI.onTouch(app.battle, card0.x + card0.w / 2, card0.y + card0.h / 2);
+  check('没有广告也能正常选卡', bLv.skills.length >= picksBefore && !bLv.modal);
+
+  // 32.5 失败页：只剩"认命，下班"，原来复活按钮的位置点了不能再触发广告
+  app.startBattle(3);
+  const bRv = d.battle;
+  bRv.modal = { type: 'revive', rects: {}, justOpened: false };
+  H.clearTexts();
+  step(0.05);
+  check('失败页没有"看广告复活"按钮', !bRv.modal.rects.revive);
+  check('失败页不再出现复活广告文案（本帧没画）', !H.hasText('看广告 复活'));
+  const giveUpR = bRv.modal.rects.giveup;
+  check('"认命，下班"仍然存在（不看广告的出路必须保留）', !!giveUpR);
+  // 点原来复活按钮的位置（现在应该没有热区）不能触发任何广告
+  app.battle.reviveTouch(CFG.DESIGN_W / 2, CFG.DESIGN_H / 2);
+  check('点空位不会触发广告', !app.adService.simulating && !app.adService.showing);
+  app.battle.reviveTouch(giveUpR.x + giveUpR.w / 2, giveUpR.y + giveUpR.h / 2);
+  check('"认命，下班"能正常走到结算', !!bRv.modal && bRv.modal.type === 'result');
+
+  CFG.ADS_ENABLED = wasOn;
+}
+
+// ---------- 33. 剧情 ----------
+// 剧情的价值是"让玩家想知道后面发生了什么"，所以它的正确性标准不是文案好不好，
+// 而是：① 每关都有、不断片；② 够短、不挡玩法；③ 只打扰一次。
+console.log('\n[33] 剧情');
+{
+  d.meta.storySeen = [];
+  app.startBattle(2);
+  const bSt = d.battle;
+  check('第一次进某关会弹出剧情卡', !!bSt.modal && bSt.modal.type === 'story');
+  check('剧情卡带着这一关的文案', !!bSt.modal.story && bSt.modal.story.title === CFG.STORY[2].title);
+  H.clearTexts();
+  step(0.05);
+  check('剧情卡真的画到了屏幕上', H.hasText(CFG.STORY[2].title));
+  app.onTouchStart(100, 100);
+  check('开场那一下触摸被吞掉（否则开始本关的点击会顺手关掉剧情）',
+    !!bSt.modal && bSt.modal.type === 'story');
+  app.onTouchStart(100, 100);
+  check('再点一下才继续', bSt.modal === null);
+  check('看过的关卡被记档', d.meta.storySeen.indexOf(2) >= 0);
+  check('storySeen 落进了存档',
+    ((H.storageGet('moyu_defense_save_v1') || {}).storySeen || []).indexOf(2) >= 0);
+  // 重玩同一关不再打扰 —— 玩家会反复重试同一关，每次都弹就是骚扰
+  app.startBattle(2);
+  check('重玩同一关不再弹剧情', d.battle.modal === null);
+  check('剧情卡不会卡住战斗（关掉后正常出怪）', (() => {
+    step(0.5);
+    return !d.battle.modal;
+  })());
+
+  // 内容完整性：断片比写得不好更伤
+  check('seen 传脏数据（undefined/非数组）也不会崩', (() => {
+    try {
+      return CFG.shouldShowStory(3, undefined) === true && CFG.shouldShowStory(3, 'x') === true;
+    } catch (e) { return false; }
+  })());
+  const named = CFG.LEVEL_NAMES.length;
+  const missing = [];
+  for (let n = 1; n <= named; n++) if (!CFG.storyFor(n)) missing.push(n);
+  check('1~8 每个命名关都有剧情，不断片', missing.length === 0);
+  const tooLong = [];
+  for (let n = 1; n <= named; n++) if (CFG.STORY[n].lines.length > 3) tooLong.push(n);
+  check('每张剧情卡最多 3 行（够短，不挡玩法）', tooLong.length === 0);
+  check('第 9 关有收尾剧情，把无尽模式接上', !!CFG.storyFor(9));
+  check('第 10 关之后不再有剧情（无尽模式不反复打断）', CFG.storyFor(10) === null);
+  check('三个 Boss 都有登场台词',
+    ['boss', 'bossLead', 'bossBig'].every((k) => !!CFG.BOSS_LINES[k]));
 }
 
 // ---------- 结果 ----------

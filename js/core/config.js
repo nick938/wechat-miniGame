@@ -3,9 +3,64 @@
  * 数值调优只改这个文件
  */
 
+// ---------- 剧情 ----------
+// 目标很朴素：给玩家一个"想知道后面发生了什么"的理由，从而愿意再打一关。
+// 所以它必须**极轻**——每关开场一张卡、三行以内、点一下就过，绝不打断节奏：
+//   · 只在每个关卡**第一次**进入时出现（记在 meta.storySeen），重玩不再打扰
+//   · 每次只推进一点点，跟关卡名咬合（周一早会 / 临时需求 / 改需求了 …）
+//   · 第 8 关通关后给一个收尾，把"无尽模式"接上去
+const STORY = {
+  1: { title: '周一 09:00', lines: [
+    '例会。二十七个人在讨论「如何提高会议效率」。',
+    '你坐在最后一排，把手机藏在键盘后面。',
+    '—— 只要工位还在，班就还能摸。'] },
+  2: { title: '临时需求', lines: [
+    '「这个很简单，半小时就能好。」',
+    '产品经理说这句话的时候，你正在看第 100 次同样的表情。'] },
+  3: { title: '改需求了', lines: [
+    '「需求没变，只是调整了一下方向。」',
+    '你打开文档，版本号停在 v7。'] },
+  4: { title: 'Bug 大爆发', lines: [
+    '上线前两小时。Bug 从屏幕上方涌下来，像周五的下班人流。',
+    '而产品经理，正站在你和下班之间。'] },
+  5: { title: '老板巡查', lines: [
+    '主管开始绕工位了。脚步声从左到右，越来越近。',
+    '—— 别慌。把键盘往他那个方向挪一挪。'] },
+  6: { title: '灰度发布', lines: [
+    '「只放 1% 的流量，应该不会出事吧。」',
+    '这句话本身，就是事故预告。'] },
+  7: { title: '年底冲 KPI', lines: [
+    '十二月。所有人都在表演努力。',
+    '只有你知道：真正被优化掉的，从来不是最闲的那个。'] },
+  8: { title: '年终述职', lines: [
+    '你站上台，背后是一整年的摸鱼记录。',
+    '直属领导和大老板同时出现 —— 这是决战。'] },
+  // 赢下第 8 关之后进第 9 关时放一次，顺势把无尽模式接上
+  9: { title: '—— 然后呢？', lines: [
+    '「你被优化了。」',
+    '「但你的摸鱼分，留在了公司内网上。」',
+    '于是你打开电脑，发现工位还在，需求还在，周一早会也还在。',
+    '摸鱼是没有尽头的。'] },
+};
+// 无尽关（第 10 关及以后）不再有专属剧情，避免每关都打断
+const storyFor = (level) => STORY[level] || null;
+
+// 这一关该不该放剧情卡（纯函数，便于单独测试与反向验证）：
+// 有剧情 **且** 这一关没看过。去重是必须的 —— 玩家会反复重试同一关，每次都弹就是骚扰。
+const shouldShowStory = (level, seen) =>
+  !!STORY[level] && !(Array.isArray(seen) && seen.indexOf(level) >= 0);
+
+// Boss 登场台词：一句话把这三个人的性格钉住
+const BOSS_LINES = {
+  boss: '产品经理：「在吗？」',
+  bossLead: '直属领导：「我看你最近状态不太对啊。」',
+  bossBig: '大老板：「来我办公室一趟。」',
+};
+
 // ---------- 布局 ----------
 const DESIGN_W = 375;
 const DESIGN_H = 667;
+
 const HUD_H = 52;            // 顶部信息栏高度
 const BASE_Y = 366;          // 工位防线：敌人越过此线开始啃工位
 const BOARD_CELL = 64;       // 合成棋盘格子边长
@@ -309,6 +364,23 @@ const UPGRADES = {
 // （砍奖励会伤次日留存）。现在约 50 个单场 / 10 局 / 3 小时以上的成长空间。
 const UPGRADE_COST = (tier) => Math.round(180 * Math.pow(1.85, tier)); // tier 从 0 计：180/333/616/1140/2108，单线 4377，三线合计 13131
 
+// ---------- 广告总开关 ----------
+// 现实约束：个人主体要**先开通流量主**才能创建广告位，而开通流量主需要游戏圈有效活跃 /
+// 累计 UV > 500 —— 也就是说首发版本在相当长一段时间里**一分钱广告收入都没有**。
+// 既然如此，就不该给玩家看四个点了没用的按钮：点了只会走 3 秒"模拟广告"然后白送奖励，
+// 既污染经济（金币通胀、成就与任务被假观看刷），又会让玩家形成"这游戏的广告是假的"的印象。
+//
+// false = 广告**代码与埋点全部保留**（服务层、失败重试、看门狗、4 个 placement 都在），
+//         只是界面上不出现入口，玩家走各自的"不看广告"出路：
+//           复活  → 仍然有「认命，下班」
+//           双倍  → 直接点「下一关」，只是少了翻倍
+//           刷新  → 三张卡照常选
+//           宝箱  → 首页的「每日免费宝箱」照领（本来就不看广告）
+//         同时，与广告绑定的任务/成就一起下线 —— 否则会留下"永远做不完的任务"，
+//         那正是 LV5 那条死内容的同类问题。
+// true  = 开通流量主、填好 AD_UNIT_ID 之后改这一行 + 重新提审即可，不需要动其它代码。
+const ADS_ENABLED = false;
+
 // ---------- 每日任务与免费宝箱 ----------
 // 每日任务池：每天从中抽 3 个（按日期确定，同一天进游戏看到的任务固定）。
 // 池子大一点才不至于"第 3 天就腻"；全部由玩法推进，只有一个可选任务需要自愿看广告
@@ -323,6 +395,13 @@ const DAILY_POOL = [
   { id: 'bossOne',  name: '打死 1 个 Boss',              need: 1,   coins: 130 },
   { id: 'adOne',    name: '看完 1 次激励视频（自愿）',     need: 1,   coins: 90 },
 ];
+// 实际可抽取的任务池：广告关闭时摘掉与广告绑定的任务，否则会留下一条永远做不完的任务
+// （同 LV5 那条死内容的问题）。
+// 注意读的是 module.exports 上的**实时值**而不是模块内的 const —— UI 各处读的是
+// `C.ADS_ENABLED`（导出对象属性），两边必须同一个来源，否则运行期改开关会出现
+// "界面没了但任务池还留着"这种半开半关的状态。
+const adsOn = () => !!module.exports.ADS_ENABLED;
+const dailyPool = () => (adsOn() ? DAILY_POOL : DAILY_POOL.filter((t) => t.id !== 'adOne'));
 const DAILY_TASKS_PER_DAY = 3;
 // 连续登录奖励：跨天登录会自动结算（第 3 天 / 第 7 天各一次）
 const STREAK_REWARDS = { 3: 150, 7: 400 };
@@ -341,11 +420,14 @@ const ACHIEVEMENTS = [
   { id: 'score5000', name: '摸鱼分 5000',  desc: '单局摸鱼分达到 5000',       stat: 'bestScore',  need: 5000, coins: 150 },
   { id: 'ad10',      name: '广告鉴赏家',   desc: '累计看完 10 次激励视频',    stat: 'adsWatched', need: 10,   coins: 150 },
 ];
+// 实际展示的成就表：广告关闭时摘掉"广告鉴赏家"（不可能达成）。同样读导出的实时值。
+const achievements = () => (adsOn() ? ACHIEVEMENTS : ACHIEVEMENTS.filter((a) => a.id !== 'ad10'));
 
 // ---------- 广告 ----------
 const AD_UNIT_ID = ''; // 上线前在微信后台创建激励视频广告位并填到这里；留空则走模拟广告
 const CHEST_PER_DAY = 3;
 const REROLL_PER_RUN = 2;      // 每局技能刷新次数（看广告）
+// 广告总开关见上方 ADS_ENABLED（任务池与成就表要按它过滤，所以必须定义在它们前面）
 
 // ---------- 经验曲线 ----------
 // 前段刻意偏快：让玩家 30 秒内迎来第一次三选一（计划书 §38 的节奏目标）。
@@ -413,8 +495,9 @@ module.exports = {
   levelPool,
   SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR, MASTERY_COINS, SHIELD_PER_STACK, ANNUAL_LEAVE_HP,
   UPGRADES, UPGRADE_COST,
-  AD_UNIT_ID, CHEST_PER_DAY, REROLL_PER_RUN,
-  DAILY_POOL, DAILY_TASKS_PER_DAY, STREAK_REWARDS, FREE_CHEST_COINS, ACHIEVEMENTS,
+  AD_UNIT_ID, ADS_ENABLED, CHEST_PER_DAY, REROLL_PER_RUN,
+  DAILY_POOL, dailyPool, DAILY_TASKS_PER_DAY, STREAK_REWARDS, FREE_CHEST_COINS, ACHIEVEMENTS, achievements,
+  STORY, storyFor, shouldShowStory, BOSS_LINES,
   expNeed, MAX_PICKS_PER_BATTLE, CARRY_SKILLS,
   SPEED_STEPS,
   calcScore,

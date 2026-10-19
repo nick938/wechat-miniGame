@@ -74,6 +74,14 @@ class BattleScene {
     this.app.audio.playBgm();
     d.scene = 'battle';
     track('level_start', { level: levelIndex });
+
+    // 剧情卡：每个关卡**第一次**进入时放一次（重玩不再打扰 —— 玩家会反复重试同一关，
+    // 每次都弹就是骚扰）。它给这一关起个头，也给玩家一个继续往下打的理由。
+    const story = C.storyFor(levelIndex);
+    const seen = Array.isArray(d.meta.storySeen) ? d.meta.storySeen : (d.meta.storySeen = []);
+    if (C.shouldShowStory(levelIndex, seen)) {
+      b.modal = { type: 'story', story, justOpened: true, rects: {} };
+    }
   }
 
   get b() {
@@ -103,6 +111,8 @@ class BattleScene {
     if (e.boss) {
       b.bossRef = e;
       this.addFx('text', C.DESIGN_W / 2, C.BASE_Y - 120, { text: `${e.cfg.name}来了！`, color: '#ff6b6b', size: 22 });
+      // 一句登场台词：把三个 Boss 的性格钉住（这游戏的反派就是这几种人）
+      if (C.BOSS_LINES[type]) this.showHint(C.BOSS_LINES[type]);
       this.app.audio.playBoom();
       U.vibrate();
       track('boss_spawn', { level: b.level, type });
@@ -487,6 +497,7 @@ class BattleScene {
       else if (b.modal.type === 'result') Result.onTouch(this, x, y);
       else if (b.modal.type === 'pause') this.pauseTouch(x, y);
       else if (b.modal.type === 'revive') this.reviveTouch(x, y);
+      else if (b.modal.type === 'story') this.storyTouch();
       return;
     }
     const hit = (r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
@@ -658,6 +669,7 @@ class BattleScene {
       else if (b.modal.type === 'result') Result.render(ctx, this);
       else if (b.modal.type === 'pause') this.renderPause(ctx);
       else if (b.modal.type === 'revive') this.renderRevive(ctx);
+      else if (b.modal.type === 'story') this.renderStory(ctx);
     }
   }
 
@@ -969,6 +981,50 @@ class BattleScene {
     m.rects = rects;
   }
 
+  // 剧情卡：整屏暗化 + 一张纸片，点任意位置继续。
+  // 刻意做得"轻"——只有标题、几行字、一个继续提示，没有选项、没有等待。
+  renderStory(ctx) {
+    const m = this.b.modal;
+    const W = C.DESIGN_W;
+    const H = C.DESIGN_H;
+    const st = m.story;
+    ctx.fillStyle = 'rgba(20,22,30,0.78)';
+    ctx.fillRect(0, 0, W, H);
+
+    const lines = st.lines || [];
+    const cardH = 132 + lines.length * 26;
+    const top = (H - cardH) / 2;
+    U.drawPanel(ctx, 26, top, W - 52, cardH, 14, '#fffdf8', '#d8cfc0');
+
+    U.drawText(ctx, `第 ${this.b.level} 关 · ${st.title}`, 44, top + 34, 15, '#9b8b6e', 'left', 'bold');
+    ctx.fillStyle = 'rgba(216,207,192,0.8)';
+    ctx.fillRect(44, top + 48, W - 88, 1);
+
+    lines.forEach((ln, i) => {
+      U.drawText(ctx, ln, 44, top + 78 + i * 26, 14, '#3a3a3a', 'left');
+    });
+
+    // 呼吸提示：让"点一下继续"这件事一眼可见
+    const a = 0.45 + 0.35 * Math.sin(this.b.time * 4);
+    ctx.globalAlpha = a;
+    U.drawText(ctx, '点任意位置继续 ▶', W / 2, top + cardH - 22, 12, '#4a90d9', 'center', 'bold');
+    ctx.globalAlpha = 1;
+    m.rects = { card: { x: 0, y: 0, w: W, h: H } };
+  }
+
+  // 关掉剧情卡并记档：同一个关卡不再弹第二次
+  storyTouch() {
+    const b = this.b;
+    const m = b.modal;
+    if (!m || m.justOpened) { if (m) m.justOpened = false; return; }
+    b.modal = null;
+    const d = this.app.databus;
+    if (!Array.isArray(d.meta.storySeen)) d.meta.storySeen = [];
+    if (d.meta.storySeen.indexOf(b.level) < 0) d.meta.storySeen.push(b.level);
+    d.saveMeta();
+    track('story_read', { level: b.level });
+  }
+
   renderRevive(ctx) {
     const b = this.b;
     const m = b.modal;
@@ -978,16 +1034,27 @@ class BattleScene {
     ctx.fillRect(0, 0, W, H);
     U.drawPanel(ctx, W / 2 - 140, H / 2 - 150, 280, 300, 16, '#ffffff');
     U.drawText(ctx, '😵 工位要被占领了！', W / 2, H / 2 - 100, 20, '#ff6b6b', 'center', 'bold');
-    U.drawText(ctx, '看个广告回半血复活，', W / 2, H / 2 - 60, 14, '#666666');
-    U.drawText(ctx, '敌人全部击退回入口', W / 2, H / 2 - 38, 14, '#666666');
 
-    const rr = { x: W / 2 - 110, y: H / 2 + 0, w: 220, h: 48 };
-    U.drawPanel(ctx, rr.x, rr.y, rr.w, rr.h, 24, '#e8a33d');
-    U.drawText(ctx, '📺 看广告 复活（回 50% 血）', W / 2, rr.y + 24, 15, '#ffffff', 'center', 'bold');
-    const gr = { x: W / 2 - 110, y: H / 2 + 62, w: 220, h: 42 };
-    U.drawPanel(ctx, gr.x, gr.y, gr.w, gr.h, 21, '#e5ded2');
-    U.drawText(ctx, '认命，下班', W / 2, gr.y + 21, 14, '#666666');
-    m.rects = { revive: rr, giveup: gr };
+    if (C.ADS_ENABLED) {
+      U.drawText(ctx, '看个广告回半血复活，', W / 2, H / 2 - 60, 14, '#666666');
+      U.drawText(ctx, '敌人全部击退回入口', W / 2, H / 2 - 38, 14, '#666666');
+      const rr = { x: W / 2 - 110, y: H / 2 + 0, w: 220, h: 48 };
+      U.drawPanel(ctx, rr.x, rr.y, rr.w, rr.h, 24, '#e8a33d');
+      U.drawText(ctx, '📺 看广告 复活（回 50% 血）', W / 2, rr.y + 24, 15, '#ffffff', 'center', 'bold');
+      const gr = { x: W / 2 - 110, y: H / 2 + 62, w: 220, h: 42 };
+      U.drawPanel(ctx, gr.x, gr.y, gr.w, gr.h, 21, '#e5ded2');
+      U.drawText(ctx, '认命，下班', W / 2, gr.y + 21, 14, '#666666');
+      m.rects = { revive: rr, giveup: gr };
+    } else {
+      // 广告关闭：只留"不看广告"的出路，且把 revive 热区清成 null，
+      // 保证 reviveTouch 里那个分支永远走不到
+      U.drawText(ctx, '这一局到此为止了，', W / 2, H / 2 - 46, 14, '#666666');
+      U.drawText(ctx, '但摸鱼分已经记下了', W / 2, H / 2 - 24, 14, '#666666');
+      const gr = { x: W / 2 - 110, y: H / 2 + 20, w: 220, h: 48 };
+      U.drawPanel(ctx, gr.x, gr.y, gr.w, gr.h, 24, '#e8a33d');
+      U.drawText(ctx, '认命，下班', W / 2, gr.y + 24, 15, '#ffffff', 'center', 'bold');
+      m.rects = { revive: null, giveup: gr };
+    }
   }
 }
 

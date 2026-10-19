@@ -53,14 +53,15 @@ class LevelUp {
       return r;
     });
 
-    // 技能刷新（看广告）
-    if (battle.rerollLeft > 0) {
+    // 技能刷新（看广告）。ADS_ENABLED=false 时整个入口不出现 —— 既不画按钮也不留热区
+    if (C.ADS_ENABLED && battle.rerollLeft > 0) {
       const rr = { x: (W - 160) / 2, y: CARD_TOP + 3 * (CARD_H + 14) + 6, w: 160, h: 40 };
       U.drawPanel(ctx, rr.x, rr.y, rr.w, rr.h, 20, 'rgba(255,255,255,0.9)', '#4a90d9');
       U.drawText(ctx, `📺 看广告换一批技能（剩${battle.rerollLeft}次）`, W / 2, rr.y + 20, 12, '#4a90d9', 'center', 'bold');
       m.rects.reroll = rr;
     } else {
-      m.rects.reroll = null; // 次数用完必须清掉热区，否则玩家点空位会白看一次广告
+      // 次数用完（或广告关闭）必须清掉热区，否则玩家点空位会白看一次广告
+      m.rects.reroll = null;
     }
   }
 

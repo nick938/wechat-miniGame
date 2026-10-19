@@ -21,7 +21,7 @@ function pickDailyTasks(dateKey, count) {
   let h = 0;
   const s = String(dateKey);
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 1000003;
-  const pool = C.DAILY_POOL.slice();
+  const pool = C.dailyPool().slice(); // 广告关闭时不抽"看完一次广告"这种不可完成的任务
   const out = [];
   for (let i = 0; i < n && pool.length; i++) {
     h = (h * 1103515245 + 12345) % 2147483648;

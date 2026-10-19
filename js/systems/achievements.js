@@ -51,7 +51,7 @@ function statValue(databus, key) {
 }
 
 function state(databus) {
-  return C.ACHIEVEMENTS.map((a) => {
+  return C.achievements().map((a) => { // 广告关闭时不展示"广告鉴赏家"（不可能达成）
     const v = statValue(databus, a.stat);
     return {
       id: a.id,

@@ -66,12 +66,16 @@ class Home {
 
   layout() {
     const W = C.DESIGN_W;
+    // 广告关闭时首页不放"看广告开宝箱"按钮（点了没用的按钮不如没有），
+    // 下面的两个按钮整体上移补位，不留一个空洞。
+    // 每日免费宝箱不受影响：它在 📋 每日任务面板里，本来就不看广告。
+    const shift = C.ADS_ENABLED ? 0 : 58;
     this.rects = {
       start: { x: (W - 280) / 2, y: 288, w: 280, h: 64 },
       upgrade: { x: (W - 280) / 2, y: 368, w: 280, h: 48 },
-      chest: { x: (W - 280) / 2, y: 426, w: 280, h: 48 },
-      rank: { x: (W - 280) / 2, y: 484, w: 280, h: 48 },
-      share: { x: (W - 280) / 2, y: 542, w: 280, h: 48 },
+      chest: C.ADS_ENABLED ? { x: (W - 280) / 2, y: 426, w: 280, h: 48 } : null,
+      rank: { x: (W - 280) / 2, y: 484 - shift, w: 280, h: 48 },
+      share: { x: (W - 280) / 2, y: 542 - shift, w: 280, h: 48 },
       help: { x: W - 52, y: 40, w: 38, h: 38 },
       daily: { x: 14, y: 40, w: 38, h: 38 },      // 每日任务入口（左上角，带红点）
       codex: { x: 60, y: 40, w: 38, h: 38 },      // 成就/图鉴入口（左上角第二个）
@@ -238,7 +242,7 @@ class Home {
       this.app.startBattle(d.meta.bestLevel);
     } else if (hit(R.upgrade)) {
       this.panel = 'upgrade';
-    } else if (hit(R.chest)) {
+    } else if (R.chest && hit(R.chest)) {
       this.openChest();
     } else if (hit(R.share)) {
       Share.share(d.meta, null);
@@ -336,7 +340,9 @@ class Home {
     // 按钮上直接写清能换到多少金币（值一眼可见），范围与 openChest 的公式一致
     const chestMul = 1 + d.meta.bestLevel * 0.05;
     const chestRange = `${Math.round(80 * chestMul)}~${Math.round(220 * chestMul)}`;
-    this.drawBtn(ctx, this.rects.chest, `🎁 看广告开宝箱 +${chestRange} 🪙（今日剩 ${left} 次）`, '#ffffff', '#e8a33d', 14, '#e8a33d');
+    if (this.rects.chest) {
+      this.drawBtn(ctx, this.rects.chest, `🎁 看广告开宝箱 +${chestRange} 🪙（今日剩 ${left} 次）`, '#ffffff', '#e8a33d', 14, '#e8a33d');
+    }
     this.drawBtn(ctx, this.rects.rank, '🏆 好友摸鱼榜', '#ffffff', '#ff8c00', 16, '#ff8c00');
     this.drawBtn(ctx, this.rects.share, '📣 分享给工友', '#ffffff', '#666666', 16, '#cccccc');
 

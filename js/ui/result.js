@@ -106,7 +106,7 @@ class Result {
     const rects = {};
     let y = m.win ? panelY + 344 : panelY + 292;
     if (m.win) {
-      if (!m.doubled) {
+      if (C.ADS_ENABLED && !m.doubled) {
         rects.double = { x: (W - BTN_W) / 2, y, w: BTN_W, h: BTN_H };
         U.drawPanel(ctx, rects.double.x, y, BTN_W, BTN_H, 24, '#e8a33d');
         // 写清具体能拿到多少（值一眼可见）

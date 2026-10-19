@@ -34,6 +34,7 @@ function defaultMeta() {
     dex: blankDex(),       // 长期统计（成就与图鉴的数据来源）
     achClaimed: [],        // 已领取的成就 id
     weekBest: { week: '', score: 0 }, // 本周最高摸鱼分（周榜）
+    storySeen: [],         // 已看过的剧情关卡号（每关只在第一次进入时放一次）
     soundOn: true,
     helpSeen: false,       // 首页玩法说明弹窗已看过
     speed: 1,              // 战斗倍速偏好（×1/×2/×3）
@@ -128,6 +129,9 @@ function normalizeMeta(m) {
   if (!m.dex.byType || typeof m.dex.byType !== 'object') m.dex.byType = {};
 
   if (!Array.isArray(m.achClaimed)) m.achClaimed = [];
+
+  if (!Array.isArray(m.storySeen)) m.storySeen = [];
+  m.storySeen = m.storySeen.filter((n) => typeof n === 'number' && n > 0);
 
   if (!m.weekBest || typeof m.weekBest !== 'object') m.weekBest = { week: '', score: 0 };
   m.weekBest.score = intGE(m.weekBest.score, 0);

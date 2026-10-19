@@ -456,7 +456,9 @@ class Bot {
         return;
       }
     }
-    if (this.cfg.chest && h.chestLeft() > 0) {      // 广告宝箱（每天 3 次）
+    // 广告宝箱（每天 3 次）。ADS_ENABLED=false 时首页没有这个按钮（rects.chest 为 null），
+    // 机器人必须跟着跳过 —— 否则会点了不存在的热区直接崩。
+    if (this.cfg.chest && h.rects.chest && h.chestLeft() > 0) {
       const r = h.rects.chest;
       H.tap(r.x + r.w / 2, r.y + r.h / 2);
       this.cool = 10;
@@ -493,6 +495,13 @@ class Bot {
     const b = d.battle;
     const m = b.modal;
     if (!m) { this.doMerge(); return; }
+
+    // 剧情卡：真人会点一下继续，机器人也要点，否则整个 session 会卡在开场
+    if (m.type === 'story') {
+      H.tap(C.DESIGN_W / 2, C.DESIGN_H / 2);
+      this.cool = 2;
+      return;
+    }
 
     if (m.type === 'levelup') {
       if (!m.rects || !m.rects.cards || !m.rects.cards.length) return;
@@ -536,7 +545,9 @@ class Bot {
     }
 
     if (m.type === 'revive') {
-      const r = this.cfg.revive ? m.rects.revive : m.rects.giveup;
+      // ADS_ENABLED=false 时没有复活按钮（m.rects.revive 为 null），只能走"认命，下班"。
+      // 只看配置不看热区存在与否的话，机器人会对着不存在的按钮点，整个 session 卡死。
+      const r = (this.cfg.revive && m.rects.revive) ? m.rects.revive : m.rects.giveup;
       if (r) { H.tap(r.x + r.w / 2, r.y + r.h / 2); this.cool = 10; }
       return;
     }
