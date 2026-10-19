@@ -51,10 +51,17 @@ function advanceStreak(streak, dateKey, rewards) {
 }
 
 // 取当天的每日数据，跨天则重置（同时推进连续登录并自动发放里程碑奖励）
+// 注意重建条件有三个，缺一不可：没有 / 跨天 / **结构不完整**。
+// 第三个是历史事故的教训：P3 写出的存档 daily 没有 taskIds，P11 才加上，
+// 而这里原先只判断"跨天"，于是同一天的旧存档被原样返回，todaysTasks() 里
+// dl.taskIds.map 直接抛异常 → 首页整帧崩溃。存档迁移（core/save.js）是第一道防线，
+// 这里是第二道：即使迁移漏了，也绝不让一个残缺的 daily 流到 UI。
 function ensure(databus) {
   const m = databus.meta;
   const todayKey = today();
-  if (!m.daily || m.daily.date !== todayKey) {
+  const dl0 = m.daily;
+  const broken = !dl0 || typeof dl0 !== 'object' || !Array.isArray(dl0.taskIds) || !dl0.taskIds.length;
+  if (broken || dl0.date !== todayKey) {
     const picked = pickDailyTasks(todayKey);
     m.daily = {
       date: todayKey,
@@ -71,13 +78,17 @@ function ensure(databus) {
     }
     databus.saveMeta();
   }
-  return m.daily;
+  const dl = m.daily;
+  if (!dl.progress || typeof dl.progress !== 'object') dl.progress = {};
+  if (!Array.isArray(dl.claimed)) dl.claimed = [];
+  if (typeof dl.freeChest !== 'boolean') dl.freeChest = false;
+  return dl;
 }
 
 // 今天这 3 个任务的完整定义（面板按这个顺序渲染）
 function todaysTasks(databus) {
   const dl = ensure(databus);
-  return dl.taskIds.map((id) => C.DAILY_POOL.find((t) => t.id === id)).filter(Boolean);
+  return (dl.taskIds || []).map((id) => C.DAILY_POOL.find((t) => t.id === id)).filter(Boolean);
 }
 
 function addProgress(dl, id, n) {

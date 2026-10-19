@@ -38,6 +38,8 @@ function update(scene, dt, time) {
     let interval = wcfg.interval[item.lv - 1];
     if (item.type === 'coffee') interval /= mods.coffeeSpdMul;
     interval /= mods.spdMul;
+    // 深度摸鱼（主动爆发）：期间全体攻速翻倍
+    if (b.slackT > 0) interval /= C.SLACK_FIRE_MUL;
     if (interval < 0.08) interval = 0.08;
     timers[key].t = interval;
 

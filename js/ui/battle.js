@@ -26,13 +26,16 @@ class BattleScene {
     this.waves = null;
     this.board = null;
     this.spawnQueue = [];
+    this.fieldLayer = null;        // 静态背景离屏缓存
+    this.fieldLayerFailed = false; // 建缓存失败过就不再重试（见 renderField）
   }
 
-  start(levelIndex) {
+  start(levelIndex, carry) {
     const d = this.app.databus;
-    const b = d.newBattle(levelIndex);
+    const b = d.newBattle(levelIndex, carry);
     this.waves = new WaveCtl(b.cfg);
     this.board = new Board(b);
+    this.spawnQueue = []; // 上一局的待生成队列不能带进新局
     // 新手手把手教学：仅第 1 关且未完成过
     this.tutorial = (!d.meta.tutorialDone && levelIndex === 1)
       ? { step: 'merge', t: 0 }
@@ -41,6 +44,7 @@ class BattleScene {
       U.vibrate();
       this.app.audio.playHit();
       this.b.merges++;                             // 每日任务「合成 N 次」用
+      this.b.slack = Math.min(C.SLACK_MAX, this.b.slack + C.SLACK_PER_MERGE); // 合成也攒摸鱼值
       if (item.lv > this.b.maxLv) this.b.maxLv = item.lv; // 成就「LV5 达成」用
       track('weapon_merge', { lv: item.lv, type: item.type });
       this.addFx('ring', WeaponSys.cellCenterX(idx), WeaponSys.cellCenterY(idx), { r1: 34, color: '#69cd8c' });
@@ -181,13 +185,25 @@ class BattleScene {
     const b = this.b;
     b.kills++;
     b.killsByType[e.type] = (b.killsByType[e.type] || 0) + 1; // 图鉴统计
-    b.coins += Math.max(1, Math.round(e.coin * b.mods.coinMul));
+    // 深度摸鱼期间金币翻倍（爆发窗口要"看得见收益"）
+    const coinMul = b.mods.coinMul * (b.slackT > 0 ? C.SLACK_COIN_MUL : 1);
+    b.coins += Math.max(1, Math.round(e.coin * coinMul));
+    // 摸鱼值：击杀积累主动爆发的能量
+    b.slack = Math.min(C.SLACK_MAX, b.slack + C.SLACK_PER_KILL);
 
     // 击杀小爆点（打击感）
     this.addFx('boom', e.x, e.y, { r0: 4, r1: e.r + 12, color: '#ffffff', life: 0.25 });
     if (!e.boss) this.app.audio.playHit();
     const levels = Skills.gainExp(b, e.exp);
-    if (levels > 0) b.pendingLevels += levels;
+    if (levels > 0) {
+      // 单关三选一次数硬性封顶（见 config.MAX_PICKS_PER_BATTLE 的说明）：
+      // 否则"build 越强 → 打得越深 → 经验越多 → 拿得越多"会形成正反馈回路，
+      // 直接导致玩家越打越轻松、永远死不掉。经验照常被消耗，只是不再兑现成选择。
+      const left = Math.max(0, C.MAX_PICKS_PER_BATTLE - (b.picksThisBattle || 0));
+      const got = Math.min(levels, left);
+      b.picksThisBattle = (b.picksThisBattle || 0) + got;
+      b.pendingLevels += got;
+    }
 
     // 分裂：产品需求 → 3 个小需求
     if (e.splitLeft) {
@@ -206,7 +222,7 @@ class BattleScene {
     if (e.boss) {
       b.bossKills++;
       b.bossRef = null;
-      this.addFx('text', e.x, e.y, { text: `+${Math.round(e.coin * b.mods.coinMul)} 🪙`, color: '#e8a33d', size: 18 });
+      this.addFx('text', e.x, e.y, { text: `+${Math.round(e.coin * coinMul)} 🪙`, color: '#e8a33d', size: 18 });
       this.app.audio.playBoom();
       // 打死 Boss 得升星券：给玩家一次"想升谁就升谁"的定向决策
       if (b.starTickets < C.STAR_TICKET_MAX) {
@@ -233,6 +249,24 @@ class BattleScene {
     if (b) b.hint = { text, t: C.HINT_SEC };
   }
 
+  // 深度摸鱼：全游戏唯一一个"可以主动按"的键。
+  // 攒满摸鱼值才能放，所以它天然带一个"什么时候放最划算"的决策：
+  // 是现在清一波，还是留到 Boss 出场 / 快守不住的时候再开。
+  tryActivateSlack() {
+    const b = this.b;
+    if (!b || b.modal) return false;
+    if (b.slackT > 0 || b.slack < C.SLACK_MAX) return false;
+    b.slack = 0;
+    b.slackT = C.SLACK_DURATION;
+    U.vibrate();
+    this.app.audio.playBoom();
+    this.addFx('ring', C.DESIGN_W / 2, C.BASE_Y - 70, { r1: 220, color: '#4a90d9' });
+    this.addFx('text', C.DESIGN_W / 2, C.BASE_Y - 110, { text: '🐟 深度摸鱼！', color: '#4a90d9', size: 22 });
+    this.showHint(`深度摸鱼 ${C.SLACK_DURATION} 秒：攻速 ×${C.SLACK_FIRE_MUL}、金币 ×${C.SLACK_COIN_MUL}`);
+    track('slack_burst', { level: b.level });
+    return true;
+  }
+
   checkPendingLevels() {
     const b = this.b;
     if (!b.modal && b.pendingLevels > 0) {
@@ -248,7 +282,13 @@ class BattleScene {
   // 倍速驱动：把 dt×速度 拆成 ≤33ms 的子步进跑，避免高速下弹丸穿模
   update(dt) {
     const b = this.b;
-    if (!b || b.modal) return;
+    if (!b || b.modal) {
+      // 弹层会吞掉 touchend（onTouchEnd 里 b.modal 时直接 return），
+      // 但拖拽状态是棋盘自己的，必须在这里收尾：否则拖到一半弹出三选一，
+      // 玩家选完技能随手点一下空格，那件装备就会被凭空搬过去。
+      if (this.board) this.board.cancelDrag();
+      return;
+    }
     let remaining = dt * (b.speed || 1);
     while (remaining > 1e-6 && !b.modal) {
       const s = Math.min(0.033, remaining);
@@ -272,6 +312,11 @@ class BattleScene {
     if (b.hotCol) {
       b.hotCol.t -= dt;
       if (b.hotCol.t <= 0) b.hotCol = null;
+    }
+    // 深度摸鱼倒计时（主动爆发窗口）
+    if (b.slackT > 0) {
+      b.slackT = Math.max(0, b.slackT - dt);
+      if (b.slackT === 0) this.showHint('摸鱼结束，接着搬砖');
     }
 
     const inMergeLesson = this.tutorial && this.tutorial.step === 'merge';
@@ -302,7 +347,7 @@ class BattleScene {
       b.supplyTimer -= dt;
       if (b.supplyTimer <= 0) {
         b.supplyTimer = C.SUPPLY_INTERVAL;
-        const pos = this.board.dropSupply(U.pick(C.WEAPON_TYPES));
+        const pos = this.board.dropSupply(C.pickSupplyType(this.b.board.cells));
         if (pos) {
           this.addFx('ring', pos.x, pos.y, { r1: 34, color: '#69cd8c' });
           this.addFx('text', pos.x, pos.y - 20, { text: '新装备！', color: '#3aa76d', size: 12 });
@@ -446,6 +491,8 @@ class BattleScene {
     }
     const hit = (r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
     const inMergeLesson = this.tutorial && this.tutorial.step === 'merge';
+    // 深度摸鱼：攒满摸鱼值后主动触发。放在最前面，保证它是"按下去立刻响应"的那一个键
+    if (!inMergeLesson && hit(C.SLACK_BTN) && this.tryActivateSlack()) return;
     // 升星：点 ⬆️ 进入选择状态，再点一件装备直接升一级（先于拖拽判定，避免误拖）
     if (!inMergeLesson && b.starTickets > 0 && hit(C.STAR_BTN)) {
       b.starArmed = !b.starArmed;
@@ -557,6 +604,12 @@ class BattleScene {
     const hit = (r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
     if (hit(m.rects.revive)) {
       this.app.adService.show('revive', () => {
+        // 状态守卫：广告期间棋盘状态可能已经变了。
+        // 尤其是模拟广告（未配置广告位时线上常态）——它只是自绘浮层，
+        // 玩家能在 3 秒倒计时里点"认命，下班"，于是这局已经结算、modal 也换成了结算面板；
+        // 此时若还执行复活，就会把玩家丢回一场已结算的战斗，再死一次会让同一局金币入账两次。
+        const d = this.app.databus;
+        if (d.battle !== b || b.settled || b.modal !== m) return;
         b.revived = true;
         b.baseHp = Math.round(b.baseHpMax * 0.5);
         // 把压境的敌人击退重进
@@ -611,7 +664,14 @@ class BattleScene {
   renderField(ctx) {
     // 静态背景缓存：地毯条纹 + 工位桌面只画一次，之后每帧 drawImage 上屏
     // （拿不到离屏画布就退回逐帧绘制，行为完全一致）
-    if (!this.fieldLayer) this.fieldLayer = this.buildFieldLayer();
+    // 注意 fieldLayerFailed：老机型/内存吃紧时 createOffscreen 会返回 null，
+    // 若不给失败做负缓存，这里会**每帧**重试建一块画布（实测 60 帧 60 次），
+    // 恰好在最弱的机器上制造每帧一次的画布分配与 GC 抖动 —— 与"退回逐帧绘制"的
+    // 设计意图正好相反。失败一次就认了，直接用回退路径。
+    if (!this.fieldLayer && !this.fieldLayerFailed) {
+      this.fieldLayer = this.buildFieldLayer();
+      if (!this.fieldLayer) this.fieldLayerFailed = true;
+    }
     if (this.fieldLayer) {
       ctx.drawImage(this.fieldLayer.canvas, 0, C.HUD_H, C.DESIGN_W, C.BASE_Y - C.HUD_H);
     } else {
@@ -732,6 +792,22 @@ class BattleScene {
         U.drawPanel(ctx, B.x, B.y, B.w, B.h, 10, b.starArmed ? '#9b59d0' : '#f0ebe1');
         U.drawText(ctx, `⬆️${b.starTickets}`, B.x + B.w / 2, B.y + B.h / 2, 13,
           b.starArmed ? '#ffffff' : '#666666', 'center', 'bold');
+      }
+      // 摸鱼值按钮：攒满才亮起来，按一下进入「深度摸鱼」
+      {
+        const B = C.SLACK_BTN;
+        const full = b.slack >= C.SLACK_MAX;
+        const active = b.slackT > 0;
+        U.drawPanel(ctx, B.x, B.y, B.w, B.h, 10, active ? '#4a90d9' : (full ? '#dceaf9' : '#f0ebe1'));
+        U.drawText(ctx, '🐟', B.x + B.w / 2, B.y + B.h / 2 - 3, 16,
+          active ? '#ffffff' : (full ? '#4a90d9' : '#c4c4c4'));
+        // 底部一小条表示充能进度 / 剩余时间
+        const pct = active ? (b.slackT / C.SLACK_DURATION) : (b.slack / C.SLACK_MAX);
+        ctx.fillStyle = active ? '#ffffff' : '#4a90d9';
+        ctx.fillRect(B.x + 5, B.y + B.h - 6, (B.w - 10) * U.clamp(pct, 0, 1), 3);
+        if (active) {
+          U.drawText(ctx, `${Math.ceil(b.slackT)}s`, B.x + B.w / 2, B.y + B.h + 8, 10, '#4a90d9', 'center', 'bold');
+        }
       }
     }
 

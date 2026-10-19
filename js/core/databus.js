@@ -6,25 +6,7 @@
  */
 const Pool = require('./pool');
 const C = require('./config');
-
-const SAVE_KEY = 'moyu_defense_save_v1';
-
-function defaultMeta() {
-  return {
-    coins: 0,
-    upgrades: { screen: 0, chair: 0, fish: 0, score: 0 }, // 工位升级等级（第四条是摸鱼分加成，老存档缺这条会补 0）
-    bestLevel: 1,          // 解锁到的最高关卡
-    bestScore: 0,          // 历史最高摸鱼分
-    totalKills: 0,
-    chest: { date: '', used: 0 }, // 每日广告宝箱
-    daily: null,           // 每日任务/免费宝箱（跨天由 systems/daily.js 重置）
-    soundOn: true,
-    helpSeen: false,       // 首页玩法说明弹窗已看过
-    speed: 1,              // 战斗倍速偏好（×1/×2/×3）
-    tutorialDone: false,   // 合成教学（手把手）完成
-    skillTipDone: false,   // 首次三选一提示已展示过
-  };
-}
+const Save = require('./save'); // 存档默认值 / 版本迁移 / 字段兜底（纯函数，可测）
 
 let instance;
 
@@ -41,33 +23,29 @@ class Databus {
   }
 
   // ---------- 存档 ----------
+  // 读档一律走 Save.buildMeta()：先按 saveVer 迁移，再做字段级兜底。
+  // 老存档（尤其缺 daily.taskIds 的 v1 存档）曾经会让首页首帧抛异常并停掉整个帧循环，
+  // 迁移与兜底就是为了让"任何版本的存档都读得进来"。
   loadMeta() {
-    const def = defaultMeta();
     try {
       if (typeof wx !== 'undefined' && wx.getStorageSync) {
-        const saved = wx.getStorageSync(SAVE_KEY);
-        if (saved && typeof saved === 'object') {
-          // 只取认识的字段，防脏数据
-          return Object.assign(def, saved, {
-            upgrades: Object.assign(def.upgrades, saved.upgrades || {}),
-            chest: Object.assign(def.chest, saved.chest || {}),
-          });
-        }
+        const saved = wx.getStorageSync(Save.SAVE_KEY);
+        return Save.buildMeta(saved);
       }
     } catch (e) { /* 存档损坏则用默认 */ }
-    return def;
+    return Save.defaultMeta();
   }
 
   saveMeta() {
     try {
       if (typeof wx !== 'undefined' && wx.setStorageSync) {
-        wx.setStorageSync(SAVE_KEY, this.meta);
+        wx.setStorageSync(Save.SAVE_KEY, this.meta);
       }
     } catch (e) { /* 忽略 */ }
   }
 
   // ---------- 局内状态 ----------
-  newBattle(levelIndex) {
+  newBattle(levelIndex, carry) {
     const cfg = C.buildLevel(levelIndex);
     const m = this.meta;
     this.battle = {
@@ -93,6 +71,7 @@ class Databus {
       scoreMul: 1 + C.UPGRADES.score.perTier * (m.upgrades.score || 0),
       rerollLeft: C.REROLL_PER_RUN,
       pendingLevels: 0,
+      picksThisBattle: 0,   // 本关已兑现的三选一次数（单关上限见 config.MAX_PICKS_PER_BATTLE）
       supplyTimer: C.SUPPLY_INTERVAL * 0.6, // 首次补给稍早一点
       regenAcc: 0,
       lastHitBy: '',        // 最近一次啃到工位的敌人类型（失败复盘用）
@@ -140,6 +119,18 @@ class Databus {
     this.battle.baseHp = this.battle.baseHpMax;
     this.battle.mods.coinMul = 1 + C.UPGRADES.fish.perTier * m.upgrades.fish;
 
+    // 跨关继承的肉鸽 build（P14）。必须放在 mods.coinMul 折算**之后**：
+    // rebuild 会把已选技能的词缀重放一遍，其中"加班费"会改 coinMul，
+    // 放在前面会被这一行的赋值覆盖掉。
+    const Skills = require('../systems/skills');
+    if (carry && carry.skills && carry.skills.length) {
+      Skills.rebuild(this.battle, carry.skills);
+    }
+
+    // 摸鱼值（主动爆发）：每关从 0 开始攒
+    this.battle.slack = 0;
+    this.battle.slackT = 0;
+
     // 初始装备：2 咖啡 + 1 键盘
     this.giveWeapon('coffee', 1, 0);
     this.giveWeapon('coffee', 1, 5);
@@ -179,7 +170,7 @@ class Databus {
         d.battle.enemies.forEach((e) => { e.hp = 0; e.dying = true; });
       },
       resetSave: () => {
-        d.meta = defaultMeta();
+        d.meta = Save.defaultMeta();
         d.saveMeta();
       },
     };

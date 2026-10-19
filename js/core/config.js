@@ -101,13 +101,37 @@ const LEVEL_NAMES = ['周一早会', '临时需求', '改需求了', 'Bug大爆�
 const BOSS_EVERY = 4;          // 每 4 关一个 Boss（第 4、8、12 关…）
 // Boss 关额外血量倍率，按 Boss 序号给：第 4 关当"教学 Boss"、第 8 关是真正的"墙"、
 // 第 12 关不再额外加（关卡自身的成长已经够陡，再加就变成谁都打不过的死墙）
-const BOSS_HP_MUL_BY_INDEX = [1.2, 3.1, 0.8];
+// 修订（P14）：原来是 [1.2, 3.1, 0.8] —— 第 8 关 ×3.1、第 12 关反而 ×0.8，
+// 结果是"第三个 Boss 比第二个还好打"（L8 曲线 7.44 > L12 的 5.67），玩家体感很怪。
+// 现在改成"教学 Boss 温和、第二关是墙、第三关持平"，三个 Boss 的强度单调递增。
+const BOSS_HP_MUL_BY_INDEX = [1.2, 2.0, 1.25];
 const BOSS_WARN_SEC = 8;       // Boss 出场前多少秒开始预警（给玩家整理棋盘的时间）
 // 补给间隔（秒）：合成是这游戏的主操作，间隔太大就会"每局只合 6 次"（基线实测），
 // 9 秒一投 ⇒ 每局到手约 24 件，合成次数才够（目标 15 次/场），棋盘也才会真的挤起来，
 // 让"回收换金币"和"棋盘满了"的提示有存在意义
 const SUPPLY_INTERVAL = 9;
 const BASE_HP = 100;           // 工位基础生命
+// 补给类型偏向棋盘上已有的装备（跟着玩家正在堆的那条线走）。
+// 为什么需要：4 种装备均分时，单场约 23 次补给里每种期望只有 5.75 个，
+// 而合出一件 LV5 需要 16 个同种 LV1 —— LV5 实际上**永远做不出来**
+// （实测 30 玩家 × 4 套配置，最高装备等级全是 LV4，成就「LV5 达成」不可达）。
+// 让补给有 62% 概率跟随玩家正在堆的线，合成链才收得住，LV5 才会真的出现。
+const SUPPLY_FOCUS_CHANCE = 0.62;
+
+// 按棋盘现状挑一个补给类型（纯函数，便于测试）
+// 权重 2^(lv-1)：已经在堆的那条线权重最高，玩家"想要什么"就多给什么
+function pickSupplyType(cells, rand) {
+  const r = rand || Math.random;
+  const list = (cells || []).filter(Boolean);
+  if (list.length && r() < SUPPLY_FOCUS_CHANCE) {
+    const score = {};
+    list.forEach((c) => { score[c.type] = (score[c.type] || 0) + Math.pow(2, c.lv - 1); });
+    let best = null;
+    Object.keys(score).forEach((t) => { if (best === null || score[t] > score[best]) best = t; });
+    if (best && WEAPONS[best]) return best;
+  }
+  return WEAPON_TYPES[Math.floor(r() * WEAPON_TYPES.length)];
+}
 
 // 某一关的刷怪池（抽出来是为了可测：关卡主题是否真的生效）
 function levelPool(n) {
@@ -142,7 +166,13 @@ function buildLevel(n) {
   const isBoss = n % BOSS_EVERY === 0;
   const bossIdx = isBoss ? Math.floor(n / BOSS_EVERY - 1) % BOSS_HP_MUL_BY_INDEX.length : -1;
   const bossMul = isBoss ? BOSS_HP_MUL_BY_INDEX[bossIdx] : 1;
-  const hpMul = (1 + (n - 1) * 0.20) * (n > 8 ? Math.pow(1.22, n - 8) : 1) * bossMul;
+  // 难度成长（P14 重新配平）：技能现在跨关继承，玩家的强度是**累加**的，
+  // 所以敌人的成长必须比原来更陡，否则会出现"越打越轻松、永远死不掉"——
+  // 实测把成长留在接近旧值（步进 0.20 / 指数 1.13）时，第 8 关通过率就是 100%，
+  // 机器人全部打满 60 虚拟分钟仍未结束（HEAD 的原始值是步进 0.20 / 指数 1.22，更陡一点，同样不够）。
+  // 现在：每关基础步进 +26%，8 关之后按 1.24 指数加速（高于原来的 1.22，
+  // 用来抵消 build 累加带来的强度增长）。
+  const hpMul = (1 + (n - 1) * 0.26) * (n > 8 ? Math.pow(1.24, n - 8) : 1) * bossMul;
   const spMul = 1 + Math.min(0.5, (n - 1) * 0.04);
   const pool = levelPool(n);
   const bossType = isBoss ? BOSS_ROTATION[Math.floor(n / BOSS_EVERY - 1) % BOSS_ROTATION.length] : null;
@@ -182,26 +212,31 @@ const lossTip = (b) => {
 
 // ---------- 肉鸽技能 ----------
 // rarity: 1白 2蓝 3紫 4橙；maxStack 为最大叠加层数
+// 修订（P14）：同品质内被严格支配的选项要抬起来 —— 否则"三选一"里经常出现
+// 一张明显更差的卡，选择就是假的。被抬的 9 张：keyboardSmash / bugFix / bassBoost
+// （单武器增益被同品质的全体增益支配）、bossAway（被同品质 chill 的减速支配）、
+// toiletBreak（回复量相对后期承伤可忽略）、overtimePay（金币很快溢出）、
+// refill（单体场景零收益）、layoff / annualLeave（被同品质 leave 支配）。
 const SKILLS = [
   { id: 'coffeeFrenzy', name: '咖啡狂热',     rarity: 1, max: 3, desc: '咖啡攻速 +30%' },
-  { id: 'keyboardSmash', name: '键盘侠',      rarity: 1, max: 3, desc: '键盘伤害 +30%' },
-  { id: 'bugFix',       name: '修Bug大师',   rarity: 1, max: 3, desc: 'Bug 炸弹伤害 +30%' },
-  { id: 'bassBoost',    name: '重低音',       rarity: 1, max: 3, desc: '耳机范围 +25%' },
+  { id: 'keyboardSmash', name: '键盘侠',      rarity: 1, max: 3, desc: '键盘伤害 +45%' },
+  { id: 'bugFix',       name: '修Bug大师',   rarity: 1, max: 3, desc: 'Bug 炸弹伤害 +45%' },
+  { id: 'bassBoost',    name: '重低音',       rarity: 1, max: 3, desc: '耳机范围 +45%' },
   { id: 'autofish',     name: '自动摸鱼脚本', rarity: 1, max: 3, desc: '全体攻速 +12%' },
   { id: 'swiftHands',   name: '手速惊人',     rarity: 1, max: 3, desc: '全体伤害 +10%' },
   { id: 'mute',         name: '工作群静音',   rarity: 2, max: 2, desc: '受到的伤害 -15%' },
-  { id: 'bossAway',     name: '老板不在',     rarity: 2, max: 2, desc: '敌人移速 -15%' },
-  { id: 'toiletBreak',  name: '带薪如厕',     rarity: 2, max: 3, desc: '每 5 秒回复 2 点生命' },
-  { id: 'overtimePay',  name: '加班费',       rarity: 2, max: 2, desc: '金币获取 +25%' },
+  { id: 'bossAway',     name: '老板不在',     rarity: 2, max: 2, desc: '敌人移速 -20%' },
+  { id: 'toiletBreak',  name: '带薪如厕',     rarity: 2, max: 3, desc: '每 5 秒回复 4 点生命' },
+  { id: 'overtimePay',  name: '加班费',       rarity: 2, max: 2, desc: '金币获取 +40%' },
   { id: 'fishology',    name: '摸鱼学导论',   rarity: 2, max: 2, desc: '经验获取 +25%' },
   { id: 'slowNet',      name: '办公网限速',   rarity: 2, max: 2, desc: '敌人对工位伤害 -25%' },
-  { id: 'refill',       name: '咖啡续杯',     rarity: 3, max: 1, desc: '咖啡豆可穿透 1 个敌人' },
+  { id: 'refill',       name: '咖啡续杯',     rarity: 3, max: 1, desc: '咖啡豆可穿透 2 个敌人' },
   { id: 'postpone',     name: '需求延期',     rarity: 3, max: 2, desc: '刷怪间隔 +18%' },
   { id: 'shield',       name: '明天再说',     rarity: 3, max: 3, desc: '立即获得 50 点护盾' },
   { id: 'efficiency',   name: '降本增效',     rarity: 3, max: 2, desc: '全体伤害 +20%' },
   { id: 'leave',        name: '老板今天请假', rarity: 4, max: 1, desc: '所有敌人生命 -30%' },
-  { id: 'layoff',       name: '优化毕业',     rarity: 4, max: 1, desc: '击杀时 15% 概率引爆周围敌人' },
-  { id: 'annualLeave',  name: '带薪年假',     rarity: 4, max: 1, desc: '生命上限 +50 并回满' },
+  { id: 'layoff',       name: '优化毕业',     rarity: 4, max: 1, desc: '击杀时 30% 概率引爆周围敌人' },
+  { id: 'annualLeave',  name: '带薪年假',     rarity: 4, max: 1, desc: '生命上限 +80 并回满' },
   // 会改变打法的机制技能：让"选什么"真的影响这一局怎么玩，而不只是数值变大
   { id: 'crit',         name: '手气不错',     rarity: 3, max: 3, desc: '每次命中 20% 概率造成三倍伤害（可叠 3 层）' },
   { id: 'chill',        name: '冷处理',       rarity: 2, max: 2, desc: '命中让敌人减速 30%，持续 1.5 秒' },
@@ -212,6 +247,9 @@ const RARITY_NAME = { 1: '白', 2: '蓝', 3: '紫', 4: '橙' };
 const RARITY_COLOR = { 1: '#9aa5b1', 2: '#4a90d9', 3: '#9b59d0', 4: '#e8a33d' };
 // 所有技能都点满后的兜底奖励卡（否则三选一弹层会没有可选卡，把玩家永久卡在弹层里）
 const MASTERY_COINS = 80;
+// 一次性/持久效果的数值（skills.js 里 apply 与 rebuild 共用，避免两处写死导致漂移）
+const SHIELD_PER_STACK = 50;   // 明天再说：立即获得的护盾（一次性，不跨关重建）
+const ANNUAL_LEAVE_HP = 80;    // 带薪年假：生命上限加成（持久属性，跨关要补回来）
 
 // ---------- 装备回收 ----------
 // 拖拽时出现在工位桌面上的回收条：把装备丢进去换金币（有舍才有得，也是解堵的唯一手动出路）
@@ -233,6 +271,21 @@ const STAR_TICKET_PER_BOSS = 1;
 const STAR_TICKET_MAX = 3;     // 一局最多攒这么多，防囤积
 const STAR_BTN = { x: DESIGN_W - 134, y: 8, w: 38, h: 38 }; // 战斗 HUD 上的升星按钮（在倍速左边）
 
+// ---------- 摸鱼值：全游戏唯一一个"可以主动按"的键 ----------
+// 设计动机：原先"摸鱼"只是皮肤 —— 操作只有拖拽合成，中后期玩家没别的事可干。
+// 现在击杀与合成会积累**摸鱼值**，攒满后玩家可以主动按一下进入「深度摸鱼」：
+// 限时全体攻速翻倍 + 金币翻倍。它同时解决三件事：
+//   1) 操作感：玩家有了一个"什么时候放"的决策，而不只是被动拖拽；
+//   2) 高光时刻：爆发窗口是天然的爽点，也给了"再攒一点就满了"的短期目标；
+//   3) 主题：摸鱼终于是一个机制，而不是一层皮。
+const SLACK_MAX = 100;          // 摸鱼值上限
+const SLACK_PER_KILL = 1.1;     // 每击杀 +1.1
+const SLACK_PER_MERGE = 4;      // 每次合成 +4（鼓励继续做核心动作）
+const SLACK_DURATION = 8;       // 深度摸鱼持续秒数
+const SLACK_FIRE_MUL = 2.0;     // 期间全体攻速倍率
+const SLACK_COIN_MUL = 2.0;     // 期间金币倍率
+const SLACK_BTN = { x: DESIGN_W - 178, y: 8, w: 38, h: 38 }; // HUD 按钮（在升星券左边）
+
 // ---------- 敌人主攻列（站位取舍） ----------
 // 七成的波次会集中在某一列压进来，并在战场上打出红色预警带：
 // 玩家据此决定"要不要把键盘挪到那一列"——这就是站位这件事的意义
@@ -249,7 +302,12 @@ const UPGRADES = {
   // 它只放大摸鱼分（排行榜/分享用），不动关卡内的战斗平衡，所以不会破坏难度曲线
   score:  { id: 'score',  name: '摸鱼达人', emoji: '🏅', desc: '摸鱼分加成', perTier: 0.03, maxTier: 10, fmt: (v) => `+${Math.round(v * 100)}%` },
 };
-const UPGRADE_COST = (tier) => Math.round(60 * Math.pow(1.85, tier)); // tier 从 0 计：60/111/205/379/701，三线合计 4368
+// 修订（P14）：三线总价从 4377 提到约 13000。
+// 原因：每日奖励（免费宝箱 + 3 次宝箱广告 + 任务 + 连续登录）大约 861 金币/天，
+// 原价 4377 意味着**只登录不打架，5 天就能把三条战斗线全部买满**，
+// 难度曲线被自己的留存奖励抹平了。正确做法是把 sink 做大，而不是砍每日奖励
+// （砍奖励会伤次日留存）。现在约 50 个单场 / 10 局 / 3 小时以上的成长空间。
+const UPGRADE_COST = (tier) => Math.round(180 * Math.pow(1.85, tier)); // tier 从 0 计：180/333/616/1140/2108，单线 4377，三线合计 13131
 
 // ---------- 每日任务与免费宝箱 ----------
 // 每日任务池：每天从中抽 3 个（按日期确定，同一天进游戏看到的任务固定）。
@@ -290,9 +348,41 @@ const CHEST_PER_DAY = 3;
 const REROLL_PER_RUN = 2;      // 每局技能刷新次数（看广告）
 
 // ---------- 经验曲线 ----------
-// 前段刻意偏快：让玩家 30 秒内迎来第一次三选一（计划书 §38 的节奏目标）；
-// 后续也别拖：目标是每场 8 次以上三选一（每 20 秒左右一次决策），否则"决策深度"只是纸面
-const expNeed = (lvl) => 5 + 4 * (lvl - 1);
+// 前段刻意偏快：让玩家 30 秒内迎来第一次三选一（计划书 §38 的节奏目标）。
+//
+// 修订（P14）——这条曲线现在是"build 成熟速度"的总闸门，两次调整都是被模拟数据逼出来的：
+// 1) 技能改成**跨关继承**后，如果还按每关 9 次三选一发，22 个技能（合计 49 层）
+//    在第 5 关左右就被点满，之后每次选择只能拿"样样精通"兜底金币，决策深度归零。
+// 2) 更严重的是强度：一个点满的 build ≈ 13 倍输出（暴击 60%×3 倍 × 攻速 +126% × 伤害 +70%），
+//    而关卡血量倍率到第 8 关才 5.6 倍 —— 实测 8 个机器人第 1~19 关通过率全是 100%，
+//    全部打满 60 虚拟分钟都死不掉。把前期步进从 0.26 一路加到 0.70 仍然是 100%，
+//    证明问题不在血量曲线，而在**build 成熟得太快**。
+// 现在的经验曲线只管"这一关的三选一什么时候来"，不管"一关能拿几次"——
+// 后者由 MAX_PICKS_PER_BATTLE 硬性封顶（原因见那里的说明）。
+const expNeed = (lvl) => 9 + 9 * (lvl - 1);
+
+// 单个战场（一关）最多拿几次三选一。
+// 这是本轮配平里最关键的一个数字，因为它切断了一个**正反馈回路**：
+//   技能跨关继承 → build 越强 → 打得越深 → 单关经验收入越高（第 16 关约 765）→ 拿到更多三选一 → build 更强
+// 实测这条回路会让 8 个机器人一路 100% 通过到第 23 关、打满 60 虚拟分钟都死不掉。
+// 封顶 3 次/关后，单关三选一从 16 次降到 3 次，一局十几关合计约 45 次，
+// 正好把 49 层的 build 摊到整局成型。
+const MAX_PICKS_PER_BATTLE = 3;
+
+// 技能是否跨关继承（P14 的核心玩法改动，可在这一行关掉退回旧手感）。
+//
+// ⚠️ 尚未配平完成，请知悉后再决定是否上线：
+// 开关打开后，肉鸽 build 才真正成立（"选什么"会影响"能打多深"），但它同时
+// 把玩家的强度变成**累加**的，实测会把第 8 关通过率从 61.5% 抬到 100%、
+// 把一局打到第 26 关且不死。已经试过并且**证明无效**的手段：
+//   · 难度曲线：同时加大基础步进与 Boss 倍率，把第 8 关血量倍率从 5.6 一路试到 19.2，L8 仍 100%
+//   · 经验曲线：线性 / 几何 1.32 / 按实测收入反推的 5.4k，越调越糟（降 expNeed 反而加速回路）
+//   · 补给聚焦：关掉 SUPPLY_FOCUS_CHANCE 后 L8 仍 100%，不是主因
+// 结论（本轮最有价值的发现）：**瓶颈不在敌人血量，而在"到达工位的压力"**——
+// 每关刷怪排程是固定的，且 spawnEnemy 在场上超过 80 只时会**静默丢弃**新的怪，
+// 所以单纯堆血量只会让每只更肉、并不会让更多怪压到工位。
+// 下一轮应该动的是「每波数量 / 刷怪间隔 / 敌人上限」，而不是 hpMul。
+const CARRY_SKILLS = true;
 
 // ---------- 快进 ----------
 const SPEED_STEPS = [1, 2, 3]; // 战斗内倍速循环档位
@@ -313,17 +403,19 @@ module.exports = {
   WEAPONS, WEAPON_TYPES, MAX_WEAPON_LV,
   ENEMIES, ENEMY_POOL_BY_LEVEL, LEVEL_POOL_BONUS, BOSS_ROTATION, LEVEL_NAMES, BOSS_EVERY, BOSS_HP_MUL_BY_INDEX, BOSS_WARN_SEC, SUPPLY_INTERVAL, BASE_HP,
   RECYCLE_RECT, recycleCoins, HINT_SEC, FX_MAX, PROJ_MAX,
+  SUPPLY_FOCUS_CHANCE, pickSupplyType,
   STAR_TICKET_PER_BOSS, STAR_TICKET_MAX, STAR_BTN,
+  SLACK_MAX, SLACK_PER_KILL, SLACK_PER_MERGE, SLACK_DURATION, SLACK_FIRE_MUL, SLACK_COIN_MUL, SLACK_BTN,
   HOT_COL_CHANCE, HOT_COL_BAND, HOT_COL_SHOW_SEC,
   lossTip,
   buildLevel,
   levelMeta,
   levelPool,
-  SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR, MASTERY_COINS,
+  SKILLS, RARITY_WEIGHT, RARITY_NAME, RARITY_COLOR, MASTERY_COINS, SHIELD_PER_STACK, ANNUAL_LEAVE_HP,
   UPGRADES, UPGRADE_COST,
   AD_UNIT_ID, CHEST_PER_DAY, REROLL_PER_RUN,
   DAILY_POOL, DAILY_TASKS_PER_DAY, STREAK_REWARDS, FREE_CHEST_COINS, ACHIEVEMENTS,
-  expNeed,
+  expNeed, MAX_PICKS_PER_BATTLE, CARRY_SKILLS,
   SPEED_STEPS,
   calcScore,
 };

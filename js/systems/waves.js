@@ -33,7 +33,10 @@ class WaveCtl {
       if (p.left <= 0) continue;
       p.timer -= dt;
       if (p.timer <= 0) {
-        p.timer = p.interval / mods.spawnGapMul;
+        // 注意这里是**乘**不是除。技能「需求延期」给的是 spawnGapMul += 0.18，
+        // 语义是"刷怪间隔变长"（对玩家是好事）；写成除法会让乘子越大间隔越短，
+        // 也就是"选了延期反而刷得更快"——技能效果和文案正好相反。
+        p.timer = p.interval * mods.spawnGapMul;
         p.left--;
         this.hotCol = p.col;
         out.push({ type: p.type, col: p.col });

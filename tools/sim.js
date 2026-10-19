@@ -10,6 +10,32 @@
  * - 只加载真实游戏代码（js/main.js），不复制任何游戏逻辑；机器人操作全部走触摸入口（与真人同路径）
  * - 观测只做只读采样 + 包装 board.dropSupply 计数（不改行为），保证指标反映真实玩法
  * - 固定随机种子：同一 seed + 同一份代码 ⇒ 完全相同的指标，可用于改动前后对比
+ *
+ * ---------- 广告指标口径（2026-10 修订，务必先读） ----------
+ * 旧口径 `adOpportunities` 已废弃，原因是它按「广告按钮随弹层出现的次数」累加：
+ * reroll 的额度是**每单场 2 次**（config.REROLL_PER_RUN），而每单场有约 9 次三选一，
+ * 只要 rerollLeft > 0 每次弹层都会画刷新按钮 ⇒ 同一份额度被重复计了约 9 次，
+ * 把「每局自愿广告机会」高估约 2.7 倍（普通档旧值 44.6/局(session)，真实决策点约 16/局(session)）。
+ * 现在拆成两个可区分、可跨单场累加的口径（数值关系：额度上限 ≥ 决策点）：
+ *   1) adCapacity（额度上限）：每单场各 placement 的额度之和 = reroll 2 + double 1 +
+ *      revive 1 = 4 次/单场。这是收入测算的**理论上限**（每次额度都被看完的极端情况）。
+ *      注意它天生偏高：double 只有赢才出现、revive 只有被打死才出现，所以"输了没双倍、
+ *      一次没死没复活"的额度在现实中拿不到——这部分差额由下面的决策点口径体现。
+ *   2) adDecisionPoints（决策点）：每个 placement 在每个单场里记 min(被展示为可用的次数, 该
+ *      placement 的额度)。同一份额度被多次弹层重复展示不重复计数（例：普通档单场 9 次三选一
+ *      都画着"剩 2 次"的刷新按钮 → reroll 决策点 = 2，不是 9）；额度花完/本场没弹 → 少记或不记。
+ *      这是玩家真正面对「要不要看广告」的次数，与玩家自己看不看无关。
+ *      口径校验：普通档实测 ≈ 2(reroll) + 1(double) + ~0.3(revive) ≈ 3.3/单场、约 16/局(session)。
+ *   3) adButtonVisible（旧口径，仅诊断）：按钮随弹层出现即 +1。只用来解释新旧差异，
+ *      **禁止**再用它得出"每局机会数"结论。
+ * 首页宝箱（chest）是「每玩家·天 3 次」的额度，与单场无关，单独按玩家·天报，
+ * 不混进上面两个单场口径里。
+ *
+ * ---------- 单位（全文严格区分，每个分母都写明） ----------
+ *   单场(battle) = 一次战斗（一关），分母用 M.runs；
+ *   局(session)  = 从首页「开始摸鱼」打到失败为止（含多个单场），分母用 M.sessions。
+ *   本文件里凡是写 "/单场" 的都用 M.runs，凡是写 "/局(session)" 的都用 M.sessions；
+ *   历史上把 M.runs 叫成"局"是错的（两者差约 5 倍），已全部改正。
  */
 'use strict';
 
@@ -98,15 +124,37 @@ function botRandom() {
 }
 
 // 机器人对技能的偏好权重（只影响机器人怎么选，不影响游戏本身）
+// 注意：这是**机器人策略模型**，不是强度结论。但表里缺 key 会静默落到默认 0.6，
+// 让"机器人不选它"伪装成"这技能弱"——bossAway 就因此被误读成"被选率 0%"。
+// 所以下面每个 C.SKILLS 的技能都必须显式给值，启动时会校验（缺 key 会打印警告）。
 const SKILL_VALUE = {
   coffeeFrenzy: 1.0, keyboardSmash: 1.0, bugFix: 1.0, bassBoost: 0.9,
   autofish: 1.2, swiftHands: 1.2, efficiency: 1.3,
   mute: 0.8, slowNet: 0.8, toiletBreak: 0.7, leave: 1.1, annualLeave: 0.9,
-  shield: 0.9, refill: 0.8, postpone: 0.7, layoff: 0.9,
+  shield: 0.9, refill: 0.8,
+  // postpone 复核（2026-10）：文案写"刷怪间隔 +18%"（读起来是延期=好事），但实现是
+  // `spawnGapMul += 0.18` 且 waves.js 用 `p.timer = p.interval / mods.spawnGapMul` —— 乘子越大
+  // 间隔越短。实测同一波 7 只的投放窗口：1.0 → 5.40s，1.18 → 4.60s，1.36 → 4.00s
+  // （单波总只数不变，只是挤得更紧 ⇒ 爆发更集中，轻微负面）。
+  // 估值 0.55（略低于中性）：它当前并不"延期"，只是把同一波的怪挤得更紧，属轻微负面。
+  // 注意它的被选率仍会是 0%——那不是缺 key 的假象，而是模型判定它被同池的 chill/mute 等
+  // 防御卡严格支配（旧值 0.7 时同样是 0%）。等 waves.js 改成 `* mods.spawnGapMul` 真正延期后，
+  // 再调到 1.0~1.2 并重测。
+  postpone: 0.55,
+  layoff: 0.9,
+  // bossAway（蓝·敌人移速 -15%/层）：此前表里没有它 → 落默认 0.6，被选率 0% 是缺 key 的假象。
+  // 它与 mute / slowNet 同为防御类，量级也接近（延迟贴脸 = 变相减伤），给 0.85。
+  bossAway: 0.85,
   overtimePay: 0.85, fishology: 0.85,              // 金币/经验类：对局外成长有用，别让机器人一律无视（这是模型选择，不是强度结论）
   crit: 1.6, chill: 1.25, lifesteal: 1.45,           // 机制技能（已加强）：会改打法，优先拿
 };
-const DEFENSIVE = ['mute', 'slowNet', 'toiletBreak', 'shield', 'annualLeave'];
+const DEFENSIVE = ['mute', 'slowNet', 'toiletBreak', 'shield', 'annualLeave', 'bossAway'];
+
+// 启动校验：C.SKILLS 里每个技能都要在 SKILL_VALUE 里有显式估值（见上面的说明）
+const MISSING_SKILL_VALUES = C.SKILLS.map((s) => s.id).filter((id) => SKILL_VALUE[id] === undefined);
+if (MISSING_SKILL_VALUES.length) {
+  console.warn(`[sim] SKILL_VALUE 缺 key：${MISSING_SKILL_VALUES.join(', ')}（会落默认 0.6，相关被选率结论不可信）`);
+}
 
 // ---------- 指标容器 ----------
 const M = {
@@ -124,7 +172,14 @@ const M = {
   deathsChewed: 0, deathsTimeout: 0,
   battleFrames: 0, fullFrames: 0, deadlockFrames: 0,
   deadlockEvents: 0, deadlockMaxStreak: 0,
-  adShows: {}, adRewards: {}, adOpportunities: {},
+  // 广告：口径见文件头注释。两个可跨单场累加的指标 + 一个仅诊断用的旧口径。
+  //   adCapacity           = 每单场额度之和（reroll 2 + double 1 + revive 1 = 4），理论上限
+  //   adDecisionPoints     = 每个 placement 每单场首次可用记 1（同额度重复展示不重复计）
+  //   adButtonVisible      = 旧口径：按钮随弹层出现就 +1（重复计，仅用于解释新旧差异）
+  adShows: {}, adRewards: {},
+  adCapacity: { reroll: 0, double: 0, revive: 0 },
+  adDecisionPoints: {},
+  adButtonVisible: {},
   peak: { enemies: 0, projectiles: 0, fxs: 0 },
   runsToMaxUpgrade: [],
   totalFrames: 0,
@@ -138,6 +193,23 @@ const M = {
 
 // 机制类技能：不是"数值 +x%"，而是改变这一局怎么打
 const MECHANIC_IDS = ['crit', 'chill', 'lifesteal', 'refill', 'layoff', 'shield', 'annualLeave'];
+
+// ---------- 广告额度口径 ----------
+// 单场额度：reroll 来自 config.REROLL_PER_RUN（每个单场独立 2 次），double / revive 各 1 次
+const AD_QUOTA = { reroll: C.REROLL_PER_RUN, double: 1, revive: 1 };
+// 决策点 = min(该 placement 在本场被展示为可用的次数, 额度)。
+// 为什么取 min：额度是"本场一共能花几次"，同一份剩余额度被弹层重复展示不算新决策。
+// 例：普通档单场 9 次三选一都画着刷新按钮（剩 2 次），但玩家真正能做的刷新决策只有 2 次，
+// 所以 reroll 记 2 而不是 9；若本场只弹了 1 次三选一，就只记 1（那一次是唯一能刷新的时机）。
+function settleAdCapacity(st) {
+  if (st.adSettled) return;                        // 每个单场只落账一次
+  st.adSettled = true;
+  Object.keys(AD_QUOTA).forEach((k) => { M.adCapacity[k] += AD_QUOTA[k]; });
+  Object.keys(AD_QUOTA).forEach((k) => {
+    const n = Math.min(st.adPres[k] || 0, AD_QUOTA[k]);
+    if (n > 0) bump(M.adDecisionPoints, k, n);
+  });
+}
 
 // ---------- 机器人 ----------
 class Bot {
@@ -161,6 +233,10 @@ class Bot {
       deadStreak: 0, deadMax: 0,
       levelupModalOpen: false, reviveModalOpen: false, resultModalOpen: false,
       lastOfferSig: '',
+      // 广告口径（每个单场独立重置）：adPres=该 placement 在本场被展示为"可用"的次数
+      // （决策点在结算时按 min(展示次数, 额度) 折算，见 settleAdCapacity），
+      adPres: { reroll: 0, double: 0, revive: 0 },
+      adSettled: false,
       result: null, coins: 0, duration: 0,
       wrappedBoard: null,
     };
@@ -199,8 +275,15 @@ class Bot {
       st.levelupModalOpen = true;
       st.levelups++;
       if (!st.firstLevelup) st.firstLevelup = b.time;
-      // 广告机会：每次弹出三选一只要还有刷新次数，就是一个可选点（上升沿计一次）
-      if (b.modal.rects && b.modal.rects.reroll) bump(M.adOpportunities, 'reroll');
+      // 刷新广告：额度是「每单场 C.REROLL_PER_RUN 次」，但三选一会弹约 9 次。
+      // 旧口径在这里每次弹层 +1（于是同一份额度被重复计 9 次）——只保留为诊断量。
+      const rerollVisible = !!(b.modal.rects && b.modal.rects.reroll);
+      if (rerollVisible) {
+        bump(M.adButtonVisible, 'reroll');
+        // 本场这一弹出层上面向玩家的「可刷新的决策数」= 剩余额度；
+        // 结算时对每个 placement 取 min(Σ展示, 额度)，同一份额度重复展示不重复计
+        if (b.rerollLeft > 0) st.adPres.reroll += b.rerollLeft;
+      }
     }
     // 记下每一批「出现过的选项」：用签名比对，这样刷新后的新选项也算供给，
     // 否则被选率会算出 >100%（刷出来的技能被选却不计供给）
@@ -214,7 +297,11 @@ class Bot {
     if (!isLevelup) st.levelupModalOpen = false;
 
     const isRevive = !!(b.modal && b.modal.type === 'revive');
-    if (isRevive && !st.reviveModalOpen) { st.reviveModalOpen = true; bump(M.adOpportunities, 'revive'); }
+    if (isRevive && !st.reviveModalOpen) {
+      st.reviveModalOpen = true;
+      bump(M.adButtonVisible, 'revive');       // 旧口径：复活面板每场最多弹 1 次，本来就没重复计
+      st.adPres.revive++;
+    }
     if (!isRevive) st.reviveModalOpen = false;
 
     const isResult = !!(b.modal && b.modal.type === 'result');
@@ -223,7 +310,13 @@ class Bot {
       st.result = b.modal.win ? 'win' : 'lose';
       st.coins = b.coins;
       st.duration = b.time;
-      if (b.modal.win) bump(M.adOpportunities, 'double');
+      // 结算面板的「双倍金币」按钮：只有赢了才出现 ⇒ 赢了才是结构上可达的 1 次额度
+      if (b.modal.win) {
+        bump(M.adButtonVisible, 'double');
+        st.adPres.double++;
+      }
+      // 每单场结算时把广告口径落账（跨单场累加，分母用 M.runs）
+      settleAdCapacity(st);
       M.runs++;
       const pl = M.passByLevel[b.level] || (M.passByLevel[b.level] = { win: 0, lose: 0 });
       if (st.result === 'win') { pl.win++; M.wins++; } else { pl.lose++; M.loses++; }
@@ -620,34 +713,52 @@ function main() {
   });
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  const adOpp = Object.keys(M.adOpportunities).reduce((a, k) => a + M.adOpportunities[k], 0);
-  const adShowTotal = Object.keys(M.adShows).reduce((a, k) => a + M.adShows[k], 0);
-  const sess = Math.max(1, M.sessions);
+  const sum = (o) => Object.keys(o).reduce((a, k) => a + o[k], 0);
+  const adCap = sum(M.adCapacity);
+  const adDecisions = sum(M.adDecisionPoints);
+  const adVisible = sum(M.adButtonVisible);
+  const adShowTotal = sum(M.adShows);
+  // 分母：局(session) 用 M.sessions，单场(battle) 用 M.runs，两者差约 5 倍，绝不能混用。
+  // 若一个 session 都没正常结束（卡死/帧上限），"/局"无意义 —— 直接标 n/a，不拿 1 当分母糊弄。
+  const sessRaw = M.sessions;
+  const battles = Math.max(1, M.runs);
+  const sess = Math.max(1, sessRaw);
+  const battlesPerSession = sessRaw ? M.runs / sessRaw : 0;
+  const perBattle = (n) => (n / battles).toFixed(2);
+  const perSession = (n) => (sessRaw ? (n / sessRaw).toFixed(2) : 'n/a(0 session)');
+  // 宝箱是「每玩家·天 3 次」的额度，与单场无关，单独按玩家·天报（模拟里每个玩家 1 天）
+  const chestShows = M.adShows.chest || 0;
+  const inBattleShows = Object.assign({}, M.adShows);
+  delete inBattleShows.chest;
+  const adShowInBattle = sum(inBattleShows);
+  const chestPerPlayerDay = chestShows / Math.max(1, ARGS.players);
   const levels = Object.keys(M.passByLevel).map(Number).sort((a, b) => a - b);
   const passLines = levels.map((lv) => {
     const p = M.passByLevel[lv];
     return `L${lv} ${pct(p.win, p.win + p.lose)}%(${p.win + p.lose})`;
   });
+  const maxUpBattles = M.runsToMaxUpgrade.length ? median(M.runsToMaxUpgrade) : 0;
+  const maxUpSessions = (maxUpBattles && battlesPerSession) ? Math.round((maxUpBattles / battlesPerSession) * 10) / 10 : 0;
 
   const lines = [];
   const push = (s) => lines.push(s);
-  push(`\n===== 对局模拟器 · 档位 ${tier} · 玩家 ${ARGS.players} × 每玩家 ${ARGS.sessions} 局 · seed ${ARGS.seed} =====`);
-  push(`完成 ${M.sessions} session / ${M.runs} 局，虚拟帧 ${(M.totalFrames / 1000).toFixed(0)}k，耗时 ${elapsed}s`);
+  push(`\n===== 对局模拟器 · 档位 ${tier} · 玩家 ${ARGS.players} × 每玩家 ${ARGS.sessions} 局(session) · seed ${ARGS.seed} =====`);
+  push(`完成 ${M.sessions} 局(session) / ${M.runs} 单场(battle)，平均 ${battlesPerSession.toFixed(2)} 单场/局(session)，虚拟帧 ${(M.totalFrames / 1000).toFixed(0)}k，耗时 ${elapsed}s`);
   push('');
-  push(`【结果】胜 ${M.wins} / 负 ${M.loses}（胜率 ${pct(M.wins, M.runs)}%）`);
+  push(`【结果】胜 ${M.wins} / 负 ${M.loses}（胜率 ${pct(M.wins, M.runs)}%，分母=单场）`);
   push(`【分关通过率】${passLines.join('  ')}`);
   push(`【session 结束关卡】中位 ${median(M.sessionEndLevels)}，最高 ${M.sessionEndLevels.length ? Math.max.apply(null, M.sessionEndLevels) : 0}`);
   push(`【失败原因】被啃死 ${M.deathsChewed} / 时间到未清场 ${M.deathsTimeout}`);
   push('');
-  push(`【节奏·秒】首杀 ${median(M.firstKill)}  首合成 ${median(M.firstMerge)}  首三选一 ${median(M.firstLevelup)}  单局时长 ${median(M.runDuration)}`);
-  push(`【行为·每局】合成 ${median(M.merges)}  三选一 ${median(M.levelups)}  补给投放 ${median(M.supplyDropped)}  补给丢弃 ${median(M.supplyLost)}  机器人漏看可合成 ${M.mergeSkipped} 次/动手 ${M.mergeDone} 次`);
+  push(`【节奏·秒】首杀 ${median(M.firstKill)}  首合成 ${median(M.firstMerge)}  首三选一 ${median(M.firstLevelup)}  单场时长 ${median(M.runDuration)}`);
+  push(`【行为·每单场(battle)】合成 ${median(M.merges)}  三选一 ${median(M.levelups)}  补给投放 ${median(M.supplyDropped)}  补给丢弃 ${median(M.supplyLost)}  机器人漏看可合成 ${M.mergeSkipped} 次/动手 ${M.mergeDone} 次`);
   push(`【挫败】满盘帧占比 ${pct(M.fullFrames, M.battleFrames)}%  真死局帧占比 ${pct(M.deadlockFrames, M.battleFrames)}%  死局次数 ${M.deadlockEvents}  最长死局 ${(M.deadlockMaxStreak / 60).toFixed(1)}s`);
-  push(`【回收】(P1 新增) 回收件数 ${H.countEvents('weapon_recycle')}  棋盘满事件 ${H.countEvents('board_full')}  空投丢弃/场 ${median(M.supplyLost)}`);
+  push(`【回收】(P1 新增) 回收件数 ${H.countEvents('weapon_recycle')}  棋盘满事件 ${H.countEvents('board_full')}  空投丢弃/单场 ${median(M.supplyLost)}`);
   // build 多样性：同一套 build 出现得越多，说明"每局都一个样"
   const buildList = Object.keys(M.builds).map((k) => ({ k, n: M.builds[k] })).sort((a, c) => c.n - a.n);
-  const topBuildShare = buildList.length ? Math.round((buildList[0].n / M.runs) * 100) : 0;
+  const topBuildShare = buildList.length ? Math.round((buildList[0].n / battles) * 100) : 0;
   const pickList = Object.keys(M.picked).map((k) => ({ k, n: M.picked[k] })).sort((a, c) => c.n - a.n);
-  push(`【build】(P2 新增) 不同打法原型 ${buildList.length} 种 / ${M.runs} 局  最热原型占比 ${topBuildShare}%  点到机制技能的局数占比 ${Math.round((M.mechanicRuns / Math.max(1, M.runs)) * 100)}%`);
+  push(`【build】(P2 新增) 不同打法原型 ${buildList.length} 种 / ${M.runs} 单场  最热原型占比 ${topBuildShare}%  点到机制技能的单场占比 ${Math.round((M.mechanicRuns / battles) * 100)}%`);
   push(`【原型 top5】${buildList.slice(0, 5).map((x) => `${x.k}×${x.n}`).join('  ')}`);
   push(`【技能热度 top6】${pickList.slice(0, 6).map((p) => `${p.k}:${p.n}`).join('  ')}`);
   push(`【每日】(P3 新增) 打开面板 ${H.countEvents('daily_open')} 次  领任务奖励 ${H.countEvents('daily_claim')} 次  领免费宝箱 ${H.countEvents('daily_chest')} 次`);
@@ -668,9 +779,14 @@ function main() {
     .sort((a, c) => a.r - c.r);
   push(`【最冷门（被选率最低，出现≥100次）】${rateList.slice(0, 5).map((x) => `${x.id} ${Math.round(x.r * 100)}%`).join('  ')}`);
   push(`【最抢手】${rateList.slice(-5).reverse().map((x) => `${x.id} ${Math.round(x.r * 100)}%`).join('  ')}`);
-  push(`【经济】每局金币中位 ${median(M.coins)}  三线满级所需局数 ${M.runsToMaxUpgrade.length ? M.runsToMaxUpgrade.join('/') : '未达成'}（按每局金币估算 ${Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))} 局，三线总价 ${totalUpgradeCost()}；另有长期出口「摸鱼达人」满级 ${Math.ceil(sinkUpgradeCost() / Math.max(1, median(M.coins)))} 局 / ${sinkUpgradeCost()} 金币）`);
-  push(`【广告·潜机会/单场】${JSON.stringify(M.adOpportunities)} 合计 ${(adOpp / sess).toFixed(2)}/局，${(adOpp / Math.max(1, M.runs)).toFixed(2)}/单场`);
-  push(`【广告·实际看/单场】${JSON.stringify(M.adShows)} 合计 ${(adShowTotal / sess).toFixed(2)}/局，${(adShowTotal / Math.max(1, M.runs)).toFixed(2)}/单场`);
+  push(`【经济】每单场(battle)金币中位 ${median(M.coins)}  三线满级所需 ${M.runsToMaxUpgrade.length ? `${maxUpBattles} 单场(battle) ≈ ${maxUpSessions} 局(session)` : `未达成（按每单场金币估算 ${Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))} 单场）`}，三线总价 ${totalUpgradeCost()}；另有长期出口「摸鱼达人」满级 ${Math.ceil(sinkUpgradeCost() / Math.max(1, median(M.coins)))} 单场 / ${sinkUpgradeCost()} 金币`);
+  push('');
+  push('【广告口径】额度上限 = 每单场 reroll 2 + double 1 + revive 1（收入测算的理论上限）；决策点 = 每 placement 每单场 min(展示为可用的次数, 额度)（同额度重复展示不重复计）');
+  push(`【广告·额度上限】${JSON.stringify(M.adCapacity)} 合计 ${adCap} 次 ⇒ ${perBattle(adCap)}/单场(battle)，${perSession(adCap)}/局(session)（收入测算的理论上限）`);
+  push(`【广告·决策点】${JSON.stringify(M.adDecisionPoints)} 合计 ${adDecisions} 次 ⇒ ${perBattle(adDecisions)}/单场(battle)，${perSession(adDecisions)}/局(session)（玩家真正面对"要不要看"的次数）`);
+  push(`【广告·实际看·单场内】${JSON.stringify(inBattleShows)} 合计 ${adShowInBattle} 次 ⇒ ${perBattle(adShowInBattle)}/单场(battle)，${perSession(adShowInBattle)}/局(session)（只看 reroll/double/revive，可与上面的决策点直接比）`);
+  push(`【广告·实际看·首页宝箱】${chestShows} 次 ⇒ ${chestPerPlayerDay.toFixed(2)}/玩家·天（额度 ${C.CHEST_PER_DAY}/天；与单场无关，不混进上面的单场口径）`);
+  push(`【广告·旧口径(仅诊断)】${JSON.stringify(M.adButtonVisible)} 合计 ${adVisible} 次 ⇒ ${perBattle(adVisible)}/单场(battle) —— 按钮随弹层出现的次数，同一份额度被重复计，**不可**当"机会数"用`);
   push(`【压力峰值】敌人 ${M.peak.enemies}  弹丸 ${M.peak.projectiles}  特效 ${M.peak.fxs}`);
   if (M.stuck.length) {
     push(`【卡死 session】${M.stuck.length} 个未正常结束：`);
@@ -692,13 +808,17 @@ function main() {
     chk('第 8 关通过率 40%-70%', p8 >= 40 && p8 <= 70, `${p8}%`);
     chk('无尽中位关卡 ≥ 12', median(M.sessionEndLevels) >= 12, `${median(M.sessionEndLevels)}`);
   }
-  chk('每局合成中位 ≥ 15', median(M.merges) >= 15, `${median(M.merges)}`);
-  chk('每局三选一中位 ≥ 8', median(M.levelups) >= 8, `${median(M.levelups)}`);
-  chk('每局自愿广告机会 ≥ 5', adOpp / sess >= 5, `${(adOpp / sess).toFixed(2)}/局（单场 ${(adOpp / Math.max(1, M.runs)).toFixed(2)}）`);
-  chk('三线满级 ≤ 25 局', (M.runsToMaxUpgrade.length ? median(M.runsToMaxUpgrade) : Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))) <= 25,
+  chk('每单场(battle)合成中位 ≥ 15', median(M.merges) >= 15, `${median(M.merges)}/单场`);
+  chk('每单场(battle)三选一中位 ≥ 8', median(M.levelups) >= 8, `${median(M.levelups)}/单场`);
+  // 广告：用诚实口径 + 写明分母。目标原文是「每局自愿广告机会 ≥ 5」，
+  // 旧口径用 adOpportunities 把同一份额度重复计了约 9 次（44.6/局）而"轻松达标"。
+  // 现在主判定用决策点/局(session)（玩家真正面对的选择次数），额度上限同时报出供收入测算。
+  chk('每局(session)自愿广告决策点 ≥ 5', sessRaw > 0 && adDecisions / sessRaw >= 5,
+    `${perSession(adDecisions)}/局(session)，${perBattle(adDecisions)}/单场(battle)；额度上限 ${perSession(adCap)}/局(session)`);
+  chk('三线满级 ≤ 25 单场(battle)', (M.runsToMaxUpgrade.length ? maxUpBattles : Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))) <= 25,
     M.runsToMaxUpgrade.length
-      ? `${median(M.runsToMaxUpgrade)} 局（实测）`
-      : `${Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))} 局（按每局金币估算）`);
+      ? `${maxUpBattles} 单场(battle) ≈ ${maxUpSessions} 局(session)（实测；旧输出把"单场"误写成"局"）`
+      : `${Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins)))} 单场(battle)（按每单场金币估算）`);
   push('【目标核对】');
   t.forEach(push);
   console.log(lines.join('\n'));
@@ -729,6 +849,12 @@ function main() {
       topBuildSharePct: topBuildShare,
       mechanicRunSharePct: Math.round((M.mechanicRuns / Math.max(1, M.runs)) * 100),
       topSkills: pickList.slice(0, 8),
+      // 全技能被选率（picked/offered）：用来验证 SKILL_VALUE 是否缺 key。
+      // 缺 key 的技能会落默认 0.6，被选率会异常低（bossAway 曾因此被误读成"弱"）。
+      pickRates: Object.keys(M.offered).sort().reduce((acc, id) => {
+        acc[id] = { picked: M.picked[id] || 0, offered: M.offered[id], ratePct: Math.round(((M.picked[id] || 0) / M.offered[id]) * 100) };
+        return acc;
+      }, {}),
       mechanicPickRate: rate(mechIds),
       statPickRate: rate(statIds),
       dailyOpen: H.countEvents('daily_open'),
@@ -737,16 +863,36 @@ function main() {
       codexOpen: H.countEvents('codex_open'),
       achievementClaim: H.countEvents('achievement_claim'),
       dex: d.meta.dex || null,
-      runsToMaxUpgrade: M.runsToMaxUpgrade,
-      runsToMaxUpgradeEstimated: Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins))),
+      // 单位说明（JSON 里的每个 "*PerSession" 用 sessions 做分母，"*PerBattle" 用 runs）
+      units: {
+        session: '局：从首页开始摸鱼打到失败为止（含多个单场）',
+        battle: '单场：一次战斗（一关）',
+        battlesPerSession: Math.round(battlesPerSession * 100) / 100,
+      },
+      runsToMaxUpgrade: M.runsToMaxUpgrade,                          // 单位=单场(battle)，不是局
+      runsToMaxUpgradeBattlesMedian: M.runsToMaxUpgrade.length ? maxUpBattles : null,
+      runsToMaxUpgradeSessionsMedian: M.runsToMaxUpgrade.length ? maxUpSessions : null,
+      runsToMaxUpgradeEstimated: Math.ceil(totalUpgradeCost() / Math.max(1, median(M.coins))), // 单位=单场
       upgradeTotalCost: totalUpgradeCost(),
       sinkUpgradeCost: sinkUpgradeCost(),
-      sinkRunsEstimated: Math.ceil(sinkUpgradeCost() / Math.max(1, median(M.coins))),
-      adOpportunities: M.adOpportunities,
+      sinkRunsEstimated: Math.ceil(sinkUpgradeCost() / Math.max(1, median(M.coins))),         // 单位=单场
+      // 广告：两个诚实口径（定义见文件头）。adOpportunities 已删除，不再以"机会数"名义出现。
+      adCapacity: M.adCapacity,
+      adDecisionPoints: M.adDecisionPoints,
+      adCapacityPerBattle: Math.round((adCap / battles) * 100) / 100,
+      adCapacityPerSession: sessRaw ? Math.round((adCap / sessRaw) * 100) / 100 : null,
+      adDecisionPointsPerBattle: Math.round((adDecisions / battles) * 100) / 100,
+      adDecisionPointsPerSession: sessRaw ? Math.round((adDecisions / sessRaw) * 100) / 100 : null,
+      adButtonVisibleLegacy: M.adButtonVisible,                      // 旧口径，仅诊断，禁止当机会数用
+      adButtonVisiblePerBattleLegacy: Math.round((adVisible / battles) * 100) / 100,
       adShows: M.adShows,
+      adShowsInBattle: inBattleShows,
       adRewards: M.adRewards,
-      adOpportunityPerSession: Math.round((adOpp / sess) * 100) / 100,
-      adShowPerSession: Math.round((adShowTotal / sess) * 100) / 100,
+      adChestPerPlayerDay: Math.round(chestPerPlayerDay * 100) / 100,
+      adShowInBattlePerBattle: Math.round((adShowInBattle / battles) * 100) / 100,
+      adShowInBattlePerSession: sessRaw ? Math.round((adShowInBattle / sessRaw) * 100) / 100 : null,
+      adShowTotalPerSession: sessRaw ? Math.round((adShowTotal / sessRaw) * 100) / 100 : null,
+      skillValueMissingKeys: MISSING_SKILL_VALUES,
       fullBoardFramePct: pct(M.fullFrames, M.battleFrames),
       deadlockFramePct: pct(M.deadlockFrames, M.battleFrames),
       deadlockEvents: M.deadlockEvents,

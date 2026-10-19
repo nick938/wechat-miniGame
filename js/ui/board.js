@@ -34,9 +34,18 @@ class Board {
   }
 
   // ---------- 触摸 ----------
+  // 清掉残留的拖拽状态。弹层（三选一/暂停/复活/结算）打开时 touchend 会被吞掉，
+  // 而 dragging 是棋盘自己持有的状态：不清掉的话，玩家选完技能随手点一下空格，
+  // 那件装备就会被"凭空搬"过去（若刚好点在 ♻️ 上还会直接被回收掉）。
+  cancelDrag() {
+    if (this.battle.board.dragging) this.battle.board.dragging = null;
+  }
+
   onTouchStart(x, y) {
     const b = this.battle;
     const i = cellAt(x, y);
+    // 落点不是空格（甚至落在棋盘外）时，先把上一次的残留清掉，避免旧 from 配新 to
+    if (!(i >= 0 && b.board.cells[i])) this.cancelDrag();
     if (i >= 0 && b.board.cells[i]) {
       b.board.dragging = { index: i, x, y };
     }

@@ -147,15 +147,24 @@ class Result {
 
     if (m.win && !m.doubled && hit(rects.double)) {
       scene.app.adService.show('double', () => {
+        // 状态守卫：模拟广告（未配置广告位时线上常态）只是自绘浮层，玩家能在 3 秒
+        // 倒计时里点"下一关"。那时这局已经结算、battle 也换成了新关的对象，
+        // 若还执行翻倍，旧局的金币就会打到新关卡上 —— 没看广告白拿一笔。
+        if (d.battle !== b || b.modal !== m || m.doubled) return;
         d.meta.coins += b.coins; // 翻倍 = 本局收益再发一次
         d.saveMeta();
         m.doubled = true;
+        b.doubled = true;        // 供测试与埋点观察"确实翻倍了"
       });
       return;
     }
     if (m.win && hit(rects.next)) {
       b.modal = null;
-      scene.start(b.level + 1);
+      // 技能跨关继承（P14）：三选一攒出来的 build 要能带进下一关，
+      // 否则"肉鸽"的寿命只有一个单场（210~255 秒），"选什么"永远影响不到"能打多深"。
+      // 注意失败重开（下面的 retry）**不**继承：死了就该丢掉 build，这是肉鸽的代价。
+      // 可在 config.CARRY_SKILLS 一键关掉（配平尚未完成，见那里的说明）。
+      scene.start(b.level + 1, C.CARRY_SKILLS ? { skills: b.skills } : undefined);
       return;
     }
     if (!m.win && hit(rects.retry)) {

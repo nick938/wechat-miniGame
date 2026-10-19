@@ -286,7 +286,8 @@ check('关闭面板', app.home.panel === null);
 
 // ---------- 10. 存档持久化 ----------
 console.log('\n[10] 存档');
-const saved = H.storageMap.get('moyu_defense_save_v1');
+// 存储桩与真机同语义（底层存的是序列化字符串），所以要走 storageGet 反序列化后再断言
+const saved = H.storageGet('moyu_defense_save_v1');
 check('存档已写入 storage', !!saved && saved.bestLevel >= 2 && saved.totalKills > 0 && saved.bestScore > 0);
 
 // ---------- 11. 词缀生效：工作群静音（减伤）与明天再说（护盾） ----------
@@ -778,6 +779,7 @@ exitToHome();
 (async () => {
   const tick = () => new Promise((r) => setImmediate(r));
   const adSvc = app.adService;
+  const harnessAdFactory = wx.createRewardedVideoAd; // harness 的忠实桩，用完要装回去
   // 场景一：未配置广告位（开发/未配置）→ 走模拟广告并发奖励
   check('未配置广告位时 AD_UNIT_ID 为空', CFG.AD_UNIT_ID === '');
   let devRewarded = false;
@@ -829,10 +831,36 @@ exitToHome();
   if (closedCb) closedCb({ isEnded: false });
   check('没看完广告不发奖励', skipRewarded === false);
 
-  // 复位（后续如需再测，走回开发期路径）
+  // 场景四：监听器泄漏回归（本轮修的缺陷）
+  // 真机 onClose 是**订阅**语义：失败/超时路径不 offClose 的话，回调会一直挂在广告实例上，
+  // 之后任何一次广告关闭都会把积压的回调**全部**触发一遍 —— 于是"曾经加载失败过"的
+  // placement 会在别人看完广告时白拿一份奖励；失败过几次就白拿几份。
+  // 这条只有在 harness 换成忠实桩（监听器数组语义）之后才测得出来：
+  // 旧桩是单槽 `closedCb = cb` 覆盖写法，结构上不可能暴露泄漏。
+  wx.createRewardedVideoAd = harnessAdFactory; // 换回忠实桩（数组订阅语义）
+  CFG.AD_UNIT_ID = 'test-ad-unit';
+  adSvc._ad = null;
+  const rewarded = [];
+  adSvc.show('revive', () => rewarded.push('revive')); // 这一次会创建广告实例
+  const adStub = H.ads.last;
+  check('以真实广告分支创建了广告实例', !!adStub);
+  adStub.failAll(); // 这一次加载/播放一直失败
+  for (let i = 0; i < 12; i++) await tick();
+  check('失败后占用位释放', adSvc.showing === false);
+  check('失败后 onClose 监听器被解绑（不泄漏）', adStub.closeListenerCount === 0);
+
+  // 失败之后再来一次正常播放：只能发 1 份奖励
+  adStub.succeed();
+  adSvc.show('double', () => rewarded.push('double'));
+  for (let i = 0; i < 3; i++) await tick();
+  const invoked = adStub.close({ isEnded: true });
+  check('一次播放只触发 1 个回调（没有历史回调被连带触发）', invoked === 1);
+  check('只发一份奖励（失败过的那次没有白拿）', rewarded.length === 1 && rewarded[0] === 'double');
+
+  // 复位（后续如需再测，走回开发期路径；忠实桩要留着给后面的用例用）
   CFG.AD_UNIT_ID = '';
   adSvc._ad = null;
-  delete wx.createRewardedVideoAd;
+  wx.createRewardedVideoAd = harnessAdFactory;
 
   // ---------- 22. 分享裂变与好友榜可读性 ----------
 console.log('\n[22] 分享裂变');
@@ -1317,6 +1345,334 @@ check('Boss 关的预告能点名到具体 Boss（第 4 关产品经理 / 第 8 
   CFG.ENEMIES[CFG.levelMeta(4).bossType].name === '产品经理' &&
   CFG.ENEMIES[CFG.levelMeta(8).bossType].name === '直属领导' &&
   CFG.ENEMIES[CFG.levelMeta(12).bossType].name === '大老板');
+
+// ---------- 30. 上线阻塞缺陷回归（存档迁移 / 帧循环兜底 / 输入穿透 / 回调守卫） ----------
+console.log('\n[30] 上线阻塞缺陷回归');
+{
+  const SaveCore = require('../js/core/save');
+  const ResultUI = require('../js/ui/result');
+
+  // --- 30.1 存档迁移：老存档不能再把首页打崩 ---
+  // 事故链条：P3 写出的存档 daily 没有 taskIds，P11 才加上；而 daily.ensure() 原先
+  // 只在"跨天"时重建，于是"当天玩过 + 当天收到热更新"的玩家会读到残缺的 daily，
+  // todaysTasks() 里 dl.taskIds.map 抛 TypeError → 首页首帧崩溃；
+  // 又因为 main.js 的 rAF 重注册写在异常点之后，这一帧之后再也不会出帧 → 永久白屏。
+  const todayKey = Daily.today();
+  const legacySave = {
+    coins: 300,
+    upgrades: { screen: 1, chair: 1, fish: 0 }, // 缺 score（P8 才加）
+    bestLevel: 5, bestScore: 3200, totalKills: 120,
+    chest: { date: todayKey, used: 0 },
+    daily: { date: todayKey, progress: { merge10: 4 }, claimed: [], freeChest: false }, // 关键：缺 taskIds
+  };
+  check('v1 存档确实没有版本号', legacySave.saveVer === undefined);
+  const migrated = SaveCore.buildMeta(legacySave);
+  check('迁移后打上当前存档版本号', migrated.saveVer === SaveCore.SAVE_VER);
+  check('迁移把残缺的 daily 作废（交给 ensure 按今天重建）', migrated.daily === null);
+  check('迁移补上老存档缺的 upgrades.score', migrated.upgrades.score === 0);
+  check('迁移补上 streak / dex / achClaimed / weekBest',
+    !!migrated.streak && !!migrated.dex && Array.isArray(migrated.achClaimed) && !!migrated.weekBest);
+  check('迁移不动玩家已有的金币', migrated.coins === 300);
+  check('损坏存档（字符串/数组/空）也能读成完整默认存档',
+    SaveCore.buildMeta('烂数据').coins === 0 && SaveCore.buildMeta([]).bestLevel === 1 &&
+    SaveCore.buildMeta(null).upgrades.screen === 0);
+
+  // 第二道防线：即使迁移被绕过，ensure() 也必须重建残缺 daily，而不是原样返回
+  const rawDb = {
+    meta: { daily: { date: todayKey, progress: {}, claimed: [], freeChest: false } },
+    saveMeta() {},
+  };
+  const dl = Daily.ensure(rawDb);
+  check('ensure 兜底：残缺 daily 被重建出 taskIds', Array.isArray(dl.taskIds) && dl.taskIds.length === 3);
+  check('ensure 兜底后 todaysTasks 可用（旧代码在这里抛 TypeError）', Daily.todaysTasks(rawDb).length === 3);
+  // 反向验证：结构完整且是今天的 daily 不该被无谓重建（进度必须保住）
+  const okDb = {
+    meta: { daily: { date: todayKey, taskIds: ['merge10'], progress: { merge10: 4 }, claimed: [], freeChest: false } },
+    saveMeta() {},
+  };
+  const dlOk = Daily.ensure(okDb);
+  check('结构完整的当天 daily 不会被重建（进度保留）', dlOk.progress.merge10 === 4 && dlOk.taskIds[0] === 'merge10');
+
+  // --- 30.2 单帧异常不能停掉主循环 ---
+  app.goHome();
+  const realHomeRender = app.home.render.bind(app.home);
+  let boom = true;
+  let renderedAfterBoom = 0;
+  app.home.render = function (ctx) {
+    if (boom) { boom = false; throw new Error('smoke: 故意让这一帧炸掉'); }
+    renderedAfterBoom++;
+    return realHomeRender(ctx);
+  };
+  const realConsoleError = console.error;
+  console.error = () => {}; // 静音 monitor 的日志
+  const droveBoomFrame = H.frame(); // 这一帧会抛异常
+  const droveNext = H.frame();      // 下一帧必须还能出（旧代码在这里永久停摆）
+  const droveNext2 = H.frame();
+  console.error = realConsoleError;
+  app.home.render = realHomeRender;
+  check('异常帧之后主循环仍在续帧（不再永久停摆）', droveBoomFrame && droveNext && droveNext2);
+  check('异常之后的帧确实继续渲染了内容', renderedAfterBoom >= 2);
+
+  // --- 30.3 广告播放期间必须吞掉输入（模拟广告是自绘浮层，底下按钮可点） ---
+  CFG.AD_UNIT_ID = '';
+  app.adService._ad = null;
+  const realSceneTouchStart = app.scene.onTouchStart;
+  let sceneTouches = 0;
+  app.scene.onTouchStart = function (x, y) { sceneTouches++; return realSceneTouchStart.call(this, x, y); };
+  app.adService.simulate('chest', () => {});
+  check('模拟广告期间 blocksInput 为真', app.adService.blocksInput() === true);
+  app.onTouchStart(100, 100);
+  app.onTouchMove(100, 100);
+  app.onTouchEnd(100, 100);
+  check('模拟广告期间输入不透传给场景', sceneTouches === 0);
+  app.adService.tick(3.1); // 模拟广告倒计时结束
+  check('模拟广告结束后 blocksInput 归假', app.adService.blocksInput() === false);
+  app.onTouchStart(100, 100);
+  check('模拟广告结束后输入恢复', sceneTouches === 1);
+  app.scene.onTouchStart = realSceneTouchStart;
+
+  // --- 30.4 双倍回调的状态守卫：广告没播完就点"下一关"，不能白拿金币 ---
+  app.startBattle(3);
+  const bDbl = d.battle;
+  bDbl.coins = 500;
+  ResultUI.open(app.battle, true); // 等价于打赢本关并结算
+  step(0.05);                      // 渲染一帧填充按钮热区
+  bDbl.modal.justOpened = false;
+  const coinsAtResult = d.meta.coins;
+  const dblRect = bDbl.modal.rects.double;
+  ResultUI.onTouch(app.battle, dblRect.x + dblRect.w / 2, dblRect.y + dblRect.h / 2);
+  check('点双倍后进入广告', !!app.adService.simulating);
+  bDbl.modal = null;               // 广告还没播完，玩家就点了"下一关"
+  app.battle.start(bDbl.level + 1);
+  step(3.5);                       // 广告倒计时结束，迟到的回调触发
+  check('迟到的双倍回调被守卫拦下（没把老局金币打到新关卡上）', d.meta.coins === coinsAtResult);
+
+  // --- 30.5 复活回调的状态守卫：广告没播完就点"认命，下班"，不能被拉回已结算的局 ---
+  app.startBattle(3);
+  const bRev = d.battle;
+  bRev.modal = { type: 'revive', rects: {}, justOpened: false };
+  step(0.05); // 渲染一帧，让 renderRevive 填好热区
+  const revRect = bRev.modal.rects.revive;
+  app.battle.reviveTouch(revRect.x + revRect.w / 2, revRect.y + revRect.h / 2);
+  check('点复活后进入广告', !!app.adService.simulating);
+  bRev.modal = null;               // 广告还没播完，玩家就点了"认命，下班"
+  app.battle.openResult(false);
+  const hpBeforeLateRevive = bRev.baseHp;
+  step(3.5);                       // 广告倒计时结束，迟到的复活回调触发
+  check('迟到的复活回调被守卫拦下（玩家没被丢回已结算的战斗）',
+    bRev.settled === true && !!bRev.modal && bRev.modal.type === 'result' &&
+    bRev.baseHp === hpBeforeLateRevive);
+
+  // --- 30.6 拖拽残留：拖到一半弹出弹层，touchend 被吞掉后不能把装备凭空搬走 ---
+  app.startBattle(3);
+  const bDrag = d.battle;
+  bDrag.board.cells[0] = { type: 'coffee', lv: 1 };
+  bDrag.board.dragging = { index: 0, x: 0, y: 0 };   // 模拟"拖到一半"
+  bDrag.modal = { type: 'levelup', rects: {}, options: [], justOpened: false };
+  step(0.05);                                        // 弹层期间跑一帧
+  check('弹层期间拖拽状态被清掉（不会残留）', bDrag.board.dragging === null);
+  bDrag.modal = null;
+  step(0.05);
+  check('清掉之后棋盘布局没有被改动', !!bDrag.board.cells[0] && bDrag.board.cells[0].type === 'coffee');
+
+  // --- 30.7 离屏缓存失败后不再每帧重试建画布 ---
+  app.startBattle(3);
+  // 注意：fieldLayer / fieldLayerFailed 挂在 Battle 控制器上（app.battle），不在 d.battle 数据对象上
+  app.battle.fieldLayer = null;
+  app.battle.fieldLayerFailed = false;
+  const realCreateOffscreen = GameGlobal.screen.createOffscreen;
+  let offscreenAttempts = 0;
+  GameGlobal.screen.createOffscreen = function () { offscreenAttempts++; return null; };
+  for (let i = 0; i < 30; i++) H.frame();
+  GameGlobal.screen.createOffscreen = realCreateOffscreen;
+  check('离屏画布拿不到时只尝试一次，不再每帧重试', offscreenAttempts === 1);
+  check('失败后走回退路径（逐帧绘制），游戏继续', app.battle.fieldLayerFailed === true);
+  app.battle.fieldLayerFailed = false; // 复位，别影响后续
+
+  // --- 30.8 spawnQueue 不能跨局残留 ---
+  app.startBattle(3);
+  app.battle.spawnQueue.push('mini', 'mini');
+  app.battle.start(4);
+  check('新关卡的待生成队列被清空（不会把上一局的怪带进新局）',
+    app.battle.spawnQueue.length === 0 && d.battle.enemies.length === 0);
+}
+
+// ---------- 31. 玩法改动回归（build 跨关继承 / 摸鱼值爆发 / LV5 可达 / 曲线 / 经济） ----------
+console.log('\n[31] 玩法改动回归');
+{
+  const SkillsSys = require('../js/systems/skills');
+  const ResultUI = require('../js/ui/result');
+
+  // --- 31.1 技能跨关继承：肉鸽 build 必须活过一关 ---
+  // 修改前 newBattle() 每关把 skills 清空，build 的寿命只有一个单场（210~255 秒），
+  // 于是"选什么"永远影响不到"能打多深"。
+  app.startBattle(3);
+  const bA = d.battle;
+  SkillsSys.apply(bA, { id: 'efficiency' }); // 全体伤害 +20%
+  SkillsSys.apply(bA, { id: 'crit' });       // 暴击 +20%
+  const atkBefore = bA.mods.atkMul;
+  const critBefore = bA.mods.crit;
+  const skillsCarried = bA.skills.map((s) => ({ id: s.id, stacks: s.stacks }));
+  check('三选一确实进了技能列表', skillsCarried.length === 2);
+  app.battle.start(bA.level + 1, { skills: skillsCarried }); // 打赢进下一关
+  const bB = d.battle;
+  check('技能跨关继承：技能列表带到了新关', bB.skills.length === 2);
+  check('技能跨关继承：词缀被重放（全体伤害加成保留）', Math.abs(bB.mods.atkMul - atkBefore) < 1e-9);
+  check('技能跨关继承：暴击加成保留', Math.abs(bB.mods.crit - critBefore) < 1e-9);
+  check('技能跨关继承：金币折算没有被 rebuild 覆盖掉（加班费改的是同一个字段）', bB.mods.coinMul >= 1);
+  check('新关的棋盘仍是新的一关（没有把上一关的棋盘搬过来）', bB.board.cells.filter(Boolean).length === 3);
+  // 反向：不传 carry 就不该继承（失败重开要丢掉 build，这是肉鸽的代价）
+  app.battle.start(bA.level + 1);
+  check('不传 carry 时不继承（失败重开丢掉 build）', d.battle.skills.length === 0);
+
+  // --- 31.2 摸鱼值：攒满 → 主动触发 → 限时爆发 ---
+  app.startBattle(3);
+  const bS = d.battle;
+  check('摸鱼值初始为 0', bS.slack === 0 && bS.slackT === 0);
+  check('没攒满时按不动（按钮不该是假的）', app.battle.tryActivateSlack() === false);
+
+  // 清场：棋盘清空（避免自动开火抢人头）、关卡波次清空（避免刷怪污染金币计量）
+  bS.board.cells = bS.board.cells.map(() => null);
+  bS.cfg.events = [];
+  bS.enemies.length = 0;
+  // damageEnemy 只是标记掉血，真正的"击杀结算"发生在下一帧的模拟里，所以要 step 一帧；
+  // 顺手把经验清零，免得三选一弹层把模拟冻住
+  const killOne = () => {
+    app.battle.spawnEnemy('bug', 1);
+    const e = bS.enemies[bS.enemies.length - 1];
+    app.battle.damageEnemy(e, 99999);
+    step(0.05);
+    bS.modal = null;
+    bS.pendingLevels = 0;
+    bS.exp = 0;
+  };
+
+  // 基准：没开爆发时击杀给多少金币
+  bS.slackT = 0;
+  const coinBase = bS.coins;
+  killOne();
+  const normalGain = bS.coins - coinBase;
+  check('基准：普通击杀有金币收益', normalGain > 0);
+
+  bS.slack = CFG.SLACK_MAX;
+  check('攒满后可以主动触发', app.battle.tryActivateSlack() === true);
+  check('触发后进入深度摸鱼并清空摸鱼值', bS.slackT === CFG.SLACK_DURATION && bS.slack === 0);
+  check('爆发期间不能重复触发', app.battle.tryActivateSlack() === false);
+
+  const coinBurst = bS.coins;
+  killOne();
+  const burstGain = bS.coins - coinBurst;
+  check('深度摸鱼期间击杀金币翻倍', burstGain === normalGain * CFG.SLACK_COIN_MUL);
+  check('击杀会积累摸鱼值', bS.slack > 0);
+  step(CFG.SLACK_DURATION + 0.5);
+  check('深度摸鱼到点自动结束', bS.slackT === 0);
+
+  // --- 31.3 LV5 可达：补给类型要跟随玩家正在堆的那条线 ---
+  // 修改前 4 种装备均分，单场约 23 次补给里每种期望只有 5.75 个，
+  // 而 LV5 需要 16 个同种 LV1 —— 实测最高装备等级永远停在 LV4。
+  let s = 1;
+  const fakeRand = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+  const board = [{ type: 'coffee', lv: 1 }, { type: 'coffee', lv: 3 }, { type: 'keyboard', lv: 1 }];
+  let focus = 0;
+  const N = 400;
+  for (let i = 0; i < N; i++) if (CFG.pickSupplyType(board, fakeRand) === 'coffee') focus++;
+  const focusRate = focus / N;
+  check('补给会明显偏向棋盘上已有的那条线（LV5 才做得出来）', focusRate > 0.62 && focusRate < 0.85);
+  let uniform = { coffee: 0, keyboard: 0, bug: 0, headphone: 0 };
+  for (let i = 0; i < N; i++) uniform[CFG.pickSupplyType([], fakeRand)]++;
+  check('棋盘为空时仍均匀随机（不会退化成只发一种装备）',
+    Object.keys(uniform).every((k) => uniform[k] > N * 0.15));
+
+  // --- 31.4 难度曲线：抹平断崖，且 Boss 强度单调递增 ---
+  const h = (n) => CFG.buildLevel(n).hpMul;
+  check('第三个 Boss 不再比第二个还好打（原来 L12 曲线 5.67 < L8 的 7.44）', h(12) > h(8));
+  check('L12→L13 的数值断崖被抹平（原来 ×1.62）', h(13) / h(12) < 1.15);
+  check('L8→L9 不再"难度直接掉一半"（原来 ×0.426）', h(9) / h(8) > 0.55);
+  check('关卡特有成长仍然单调递增', h(9) < h(10) && h(10) < h(11) && h(13) < h(14));
+
+  // --- 31.5 经济：sink 做大，日常奖励不再几天就把战斗线买满 ---
+  let threeLines = 0;
+  for (let t = 0; t < 5; t++) threeLines += CFG.UPGRADE_COST(t) * 3;
+  check('三条战斗线总价提到 1.2 万以上（原来 4377，只登录 5 天就买满）', threeLines > 12000);
+
+  // --- 31.6 单关三选一上限：切断"越强→越深→经验越多→拿得越多"的正反馈回路 ---
+  app.startBattle(3);
+  const bP = d.battle;
+  bP.board.cells = bP.board.cells.map(() => null);
+  bP.cfg.events = [];
+  bP.enemies.length = 0;
+  check('新关卡的三选一计数从 0 开始', bP.picksThisBattle === 0);
+  for (let i = 0; i < 12; i++) {
+    app.battle.spawnEnemy('bug', 1);
+    const e = bP.enemies[bP.enemies.length - 1];
+    e.exp = 500; // 一次给足经验，逼出上限
+    app.battle.damageEnemy(e, 99999);
+    step(0.05);
+    bP.modal = null;      // 弹层会冻住模拟，先把选择消费掉
+    bP.pendingLevels = 0;
+  }
+  check('单关三选一次数被硬性封顶（否则 build 会指数级滚雪球）',
+    bP.picksThisBattle === CFG.MAX_PICKS_PER_BATTLE);
+  check('经验仍在正常消耗（只是不再兑现成选择）', bP.charLevel > 1);
+
+  // --- 31.7 跨关继承开关：关掉后点"下一关"不能带回任何技能 ---
+  const driveNextLevel = (flag) => {
+    app.startBattle(3);
+    const bb = d.battle;
+    SkillsSys.apply(bb, { id: 'efficiency' });
+    ResultUI.open(app.battle, true);
+    step(0.05);
+    bb.modal.justOpened = false;
+    const saved = CFG.CARRY_SKILLS;
+    CFG.CARRY_SKILLS = flag;
+    const r = bb.modal.rects.next;
+    ResultUI.onTouch(app.battle, r.x + r.w / 2, r.y + r.h / 2);
+    CFG.CARRY_SKILLS = saved;
+    return d.battle.skills.length;
+  };
+  check('CARRY_SKILLS 打开时点"下一关"会继承 build（肉鸽成立）', driveNextLevel(true) === 1);
+  check('CARRY_SKILLS 关掉时点"下一关"不继承（可一键退回旧手感）', driveNextLevel(false) === 0);
+
+  // --- 31.8 需求延期：技能效果必须与文案同向 ---
+  // 原实现是 `p.timer = p.interval / mods.spawnGapMul`：乘子越大间隔越**短**，
+  // 于是"选一张叫『需求延期』的卡"实际会让怪刷得更快 —— 效果和文案正好相反。
+  {
+    const WaveCtl = require('../js/systems/waves');
+    const cfgWave = { events: [{ t: 0, type: 'bug', count: 4, interval: 1.0 }] };
+    const timeToSpawnAll = (gapMul) => {
+      const w = new WaveCtl(cfgWave);
+      const mods = { spawnGapMul: gapMul };
+      let t = 0, n = 0;
+      while (n < 4 && t < 30) {
+        t += 1 / 60;
+        w.setElapsed(t);
+        n += w.update(1 / 60, mods).length;
+      }
+      return t;
+    };
+    const t1 = timeToSpawnAll(1);
+    const tBoosted = timeToSpawnAll(1.36); // 两层「需求延期」
+    check('需求延期真的会延后刷怪（原来实现反了：越延期刷得越快）', tBoosted > t1 * 1.2);
+  }
+
+  // --- 31.9 补齐 harness-dev 指出的两个覆盖缺口 ---
+  // (a) 存储按真机语义做 JSON 往返，而不是存引用
+  const src = { a: 1, b: undefined, c: 'x' };
+  H.storageSet('smoke_roundtrip', src);
+  src.a = 999; // 改源对象不该影响已经写进去的存储
+  const back = H.storageGet('smoke_roundtrip');
+  check('存储是 JSON 往返而非引用（别名污染会被发现）', back.a === 1 && back.c === 'x');
+  check('undefined 字段序列化后消失（真机行为）', !('b' in back));
+  // (b) 切后台真机 rAF 不触发，一帧都不出
+  const skipsBefore = H.hiddenFrameSkips || 0;
+  H.hide();
+  const drove = H.frame();
+  const skipsAfter = H.hiddenFrameSkips || 0;
+  H.show();
+  check('切后台时一帧都不出（真机 rAF 不触发）', drove === false && skipsAfter > skipsBefore);
+  check('回前台后恢复出帧', H.frame() === true);
+  H.storageClear && H.storageClear();
+}
 
 // ---------- 结果 ----------
   console.log(`\n========== 冒烟测试：${pass} 通过 / ${fail} 失败 ==========`);
