@@ -1811,9 +1811,20 @@ console.log('\n[33] 剧情');
   const missing = [];
   for (let n = 1; n <= named; n++) if (!CFG.storyFor(n)) missing.push(n);
   check('1~8 每个命名关都有剧情，不断片', missing.length === 0);
+  // 覆盖**全部**剧情卡（含第 9 关收尾），并显式写出每张卡的行数上限。
+  // 之前的写法只循环 1~8，第 9 关那张 4 行的收尾卡其实没人管 —— 以后有人给 L9 再加两行也不会红。
   const tooLong = [];
-  for (let n = 1; n <= named; n++) if (CFG.STORY[n].lines.length > 3) tooLong.push(n);
-  check('每张剧情卡最多 3 行（够短，不挡玩法）', tooLong.length === 0);
+  Object.keys(CFG.STORY).forEach((k) => {
+    const n = Number(k);
+    const maxLines = n === 9 ? 4 : 3; // 第 9 关是收尾卡，允许 4 行；其余一律 ≤3
+    if ((CFG.STORY[k].lines || []).length > maxLines) tooLong.push(n);
+  });
+  check('每张剧情卡都够短（1~8 关 ≤3 行、第 9 关收尾 ≤4 行），不挡玩法',
+    tooLong.length === 0 && Object.keys(CFG.STORY).length === 9);
+  check('每张剧情卡都有标题和非空正文',
+    Object.keys(CFG.STORY).every((k) => !!CFG.STORY[k].title &&
+      Array.isArray(CFG.STORY[k].lines) && CFG.STORY[k].lines.length > 0 &&
+      CFG.STORY[k].lines.every((l) => typeof l === 'string' && l.length > 0)));
   check('第 9 关有收尾剧情，把无尽模式接上', !!CFG.storyFor(9));
   check('第 10 关之后不再有剧情（无尽模式不反复打断）', CFG.storyFor(10) === null);
   check('三个 Boss 都有登场台词',
